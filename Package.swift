@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClipShelf",
+    name: "Kippet",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "ClipShelf", targets: ["ClipShelf"])],
+    products: [.executable(name: "Kippet", targets: ["Kippet"])],
     targets: [
-        .executableTarget(name: "ClipShelf"),
-        .testTarget(name: "ClipShelfTests", dependencies: ["ClipShelf"]),
+        .executableTarget(name: "Kippet"),
+        .testTarget(name: "KippetTests", dependencies: ["Kippet"]),
     ]
 )

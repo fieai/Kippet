@@ -31,8 +31,8 @@ if ! /usr/bin/security find-identity -v -p codesigning |
     exit 1
 fi
 
-config="$(mktemp "$root/.clipshelf-signing.XXXXXXXX")"
+config="$(mktemp "$root/.kippet-signing.XXXXXXXX")"
 trap 'rm -f "$config"' EXIT
 printf '%s\n' "$fingerprint" >"$config"
-mv "$config" "$root/.clipshelf-signing-identity"
-printf 'ClipShelf will reuse this signing identity on subsequent local builds.\n'
+mv "$config" "$root/.kippet-signing-identity"
+printf 'Kippet will reuse this signing identity on subsequent local builds.\n'

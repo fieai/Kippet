@@ -2,6 +2,7 @@
 dist/
 .swiftpm/
 .clipshelf-signing-identity
+.kippet-signing-identity
 .DS_Store
 .codex-runs/
 site/downloads/

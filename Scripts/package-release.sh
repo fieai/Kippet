@@ -1,5 +1,5 @@
 #!/bin/bash
-# Packages dist/ClipShelf.app as a notarized Kippet DMG that opens on other Macs without Gatekeeper warnings.
+# Packages dist/Kippet.app as a notarized Kippet DMG that opens on other Macs without Gatekeeper warnings.
 #
 # One-time setup (stores an app-specific password in the keychain):
 #   xcrun notarytool store-credentials kippet-notary --apple-id <Apple ID> --team-id <Team ID>
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-app="$root/dist/ClipShelf.app"
+app="$root/dist/Kippet.app"
 profile="${KIPPET_NOTARY_PROFILE:-kippet-notary}"
 notarize=1
 [[ "${1:-}" == "--skip-notarize" ]] && notarize=0
@@ -21,17 +21,17 @@ if [[ ! -d "$app" ]]; then
     exit 1
 fi
 
-identity="$(/usr/bin/printenv CLIPSHELF_SIGN_IDENTITY || true)"
-if [[ -z "$identity" && -f "$root/.clipshelf-signing-identity" ]]; then
-    identity="$(<"$root/.clipshelf-signing-identity")"
-fi
+identity="$(/usr/bin/printenv KIPPET_SIGN_IDENTITY || /usr/bin/printenv CLIPSHELF_SIGN_IDENTITY || true)"
+for file in "$root/.kippet-signing-identity" "$root/.clipshelf-signing-identity"; do
+    if [[ -z "$identity" && -f "$file" ]]; then identity="$(<"$file")"; fi
+done
 if [[ -z "$identity" ]] || ! /usr/bin/security find-identity -v -p codesigning |
     /usr/bin/grep -F "$identity" | /usr/bin/grep -q "Developer ID Application"; then
     printf 'A Developer ID Application identity is required. Run Scripts/configure-signing.sh first.\n' >&2
     exit 1
 fi
 
-archs="$(/usr/bin/lipo -archs "$app/Contents/MacOS/ClipShelf")"
+archs="$(/usr/bin/lipo -archs "$app/Contents/MacOS/Kippet")"
 if [[ "$archs" != *arm64* || "$archs" != *x86_64* ]]; then
     printf 'Release builds must run on Apple silicon and Intel. Rebuild with: ./Scripts/build-app.sh --arch arm64 --arch x86_64\n' >&2
     exit 1
@@ -47,7 +47,7 @@ mkdir -p "$work/root" "$release"
 /usr/bin/ditto "$app" "$work/root/Kippet.app"
 # Notarization needs the hardened runtime and a secure timestamp.
 /usr/bin/codesign --force --options runtime --timestamp --sign "$identity" \
-    --entitlements "$root/ClipShelf.entitlements" "$work/root/Kippet.app"
+    --entitlements "$root/Kippet.entitlements" "$work/root/Kippet.app"
 /usr/bin/codesign --verify --strict --deep "$work/root/Kippet.app"
 ln -s /Applications "$work/root/Applications"
 
