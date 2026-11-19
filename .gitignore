@@ -1,0 +1,6 @@
+.build/
+dist/
+.swiftpm/
+.clipshelf-signing-identity
+.DS_Store
+.codex-runs/
