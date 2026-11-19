@@ -82,7 +82,14 @@ xcrun notarytool store-credentials kippet-notary --apple-id <Apple ID> --team-id
 
 DMG 输出到 `dist/release/Kippet-<版本>.dmg`，同时复制到 `site/downloads/Kippet.dmg`。DMG 里的应用名为 `Kippet.app`。
 
-落地页在 `site/`，是不依赖外部资源的静态页面，整个文件夹上传到任意静态托管即可。下载按钮指向 `downloads/Kippet.dmg`。
+发布到 GitHub 时，把 DMG 以带版本号和不带版本号的两个名字都上传到 Release：
+
+```sh
+cp dist/release/Kippet-<版本>.dmg /tmp/Kippet.dmg
+gh release create v<版本> dist/release/Kippet-<版本>.dmg /tmp/Kippet.dmg --title "Kippet <版本>"
+```
+
+落地页在 `site/`，有中文（`site/index.html`）和英文（`site/en/index.html`）两版，共用 `site/assets/site.css`。非中文浏览器首次访问会进入英文版，切换语言后会记住选择。下载按钮指向 `https://github.com/fieai/Kippet/releases/latest/download/Kippet.dmg`，发新版后无需改页面。整个 `site/` 文件夹上传到任意静态托管即可。
 
 运行 `swift test` 可验证捕获、搜索、收藏、持久化和直接粘贴的焦点校验。剪贴板测试使用独立的命名剪贴板。
 
