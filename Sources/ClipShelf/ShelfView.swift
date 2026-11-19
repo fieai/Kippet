@@ -119,7 +119,7 @@ struct ShelfView: View {
             Button("请求系统授权", action: onRequestAccess)
             Button("返回手动粘贴", role: .cancel, action: onReturnToApp)
         } message: {
-            Text("内容已放到剪贴板。请在系统设置中允许 TapV 使用辅助功能。授权后，从原输入框重新打开 TapV 即可直接粘贴。")
+            Text("内容已放到剪贴板。请在系统设置中允许 Kippet 使用辅助功能。授权后，从原输入框重新打开 Kippet 即可直接粘贴。")
         }
         .sheet(item: $groupEditor) { editor in
             groupEditorSheet(editor)
@@ -237,8 +237,8 @@ struct ShelfView: View {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
             }
             .buttonStyle(ShelfGlyphButtonStyle())
-            .help("收起 TapV")
-            .accessibilityLabel("收起 TapV")
+            .help("收起 Kippet")
+            .accessibilityLabel("收起 Kippet")
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -698,7 +698,7 @@ struct ShelfView: View {
         if hasActiveSearchFilters { return "试试其他关键词、来源或内容类型" }
         if selectedGroup != nil, browser.favoritesOnly { return "在历史中右键卡片，将它加入这个分组" }
         if browser.favoritesOnly { return "收藏的记录会显示在这里" }
-        if store.isCaptureDenied { return "在系统设置中允许 TapV 读取剪贴板" }
+        if store.isCaptureDenied { return "在系统设置中允许 Kippet 读取剪贴板" }
         return store.isPaused ? "恢复记录后，复制一段文字试试" : "复制文字、链接、图片或文件即可开始"
     }
 

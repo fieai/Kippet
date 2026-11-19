@@ -4,7 +4,7 @@ import Testing
 
 struct ShelfAutomationTests {
     @Test func configAndCommandUseTheActualExecutablePath() throws {
-        let path = "/Applications/My TapV.app/Contents/MacOS/ClipShelf"
+        let path = "/Applications/My Kippet.app/Contents/MacOS/ClipShelf"
         let config = try #require(ShelfAutomation.mcpConfig(executablePath: path))
         let json = try #require(JSONSerialization.jsonObject(with: Data(config.utf8)) as? [String: Any])
         let servers = try #require(json["mcpServers"] as? [String: [String: Any]])

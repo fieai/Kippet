@@ -106,7 +106,7 @@ enum ShelfDrag {
         }
 
         func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-            "TapV 图片.\(type.preferredFilenameExtension ?? "image")"
+            "Kippet 图片.\(type.preferredFilenameExtension ?? "image")"
         }
 
         func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {

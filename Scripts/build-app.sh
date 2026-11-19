@@ -41,7 +41,7 @@ trap cleanup EXIT
 new_app="$staging/ClipShelf.app"
 mkdir -p "$new_app/Contents/MacOS" "$new_app/Contents/Resources"
 install -m 644 "$root/Info.plist" "$new_app/Contents/Info.plist"
-install -m 644 "$root/Resources/TapV.icns" "$new_app/Contents/Resources/TapV.icns"
+install -m 644 "$root/Resources/Kippet.icns" "$new_app/Contents/Resources/Kippet.icns"
 install -m 755 "$binary_dir/ClipShelf" "$new_app/Contents/MacOS/ClipShelf"
 /usr/bin/codesign --force --sign "$identity" --timestamp=none --entitlements "$root/ClipShelf.entitlements" "$new_app"
 /usr/bin/codesign --verify --strict "$new_app"

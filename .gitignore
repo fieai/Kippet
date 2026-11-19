@@ -4,3 +4,4 @@ dist/
 .clipshelf-signing-identity
 .DS_Store
 .codex-runs/
+site/downloads/

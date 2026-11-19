@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDisplayName</key><string>TapV</string>
-    <key>CFBundleName</key><string>TapV</string>
-    <key>CFBundleIconFile</key><string>TapV.icns</string>
+    <key>CFBundleDisplayName</key><string>Kippet</string>
+    <key>CFBundleName</key><string>Kippet</string>
+    <key>CFBundleIconFile</key><string>Kippet.icns</string>
     <key>CFBundleExecutable</key><string>ClipShelf</string>
     <key>CFBundleIdentifier</key><string>com.clipshelf.macos</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -22,11 +22,11 @@
     <key>UTExportedTypeDeclarations</key>
     <array><dict>
         <key>UTTypeIdentifier</key><string>com.clipshelf.local-card-id</string>
-        <key>UTTypeDescription</key><string>TapV Card</string>
+        <key>UTTypeDescription</key><string>Kippet Card</string>
         <key>UTTypeConformsTo</key><array><string>public.data</string></array>
     </dict><dict>
         <key>UTTypeIdentifier</key><string>com.clipshelf.local-pinboard-id</string>
-        <key>UTTypeDescription</key><string>TapV Pinboard</string>
+        <key>UTTypeDescription</key><string>Kippet Pinboard</string>
         <key>UTTypeConformsTo</key><array><string>public.data</string></array>
     </dict></array>
 </dict>

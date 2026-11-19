@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import CoreGraphics
 
@@ -38,10 +39,16 @@ enum KeyboardLayout {
               let release = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
         else { return false }
 
+        // Post through the session tap like a real keystroke so the window server routes it to the
+        // focused input; events posted straight to a pid can be dropped before the window regains key.
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
+        source.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents], state: .eventSuppressionStateSuppressionInterval
+        )
         press.flags = .maskCommand
-        release.flags = []
-        press.postToPid(pid)
-        release.postToPid(pid)
+        release.flags = .maskCommand
+        press.post(tap: .cgSessionEventTap)
+        release.post(tap: .cgSessionEventTap)
         return true
     }
 }

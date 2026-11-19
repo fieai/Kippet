@@ -58,7 +58,7 @@ struct MCPServerTests {
         for tool in ["search_clips", "list_recent", "get_clip", "list_pinboards", "list_pinboard_clips", "add_snippet"] {
             let result = try call(server, tool)
             #expect(result["isError"] as? Bool == true)
-            #expect(try content(result) == "TapV 未开启 AI 访问，请在 设置 → 自动化 中打开")
+            #expect(try content(result) == "Kippet 未开启 AI 访问，请在 设置 → 自动化 中打开")
         }
         let missing = try response(server, method: "tools/call")
         #expect((missing["result"] as? [String: Any])?["isError"] as? Bool == true)
@@ -177,10 +177,10 @@ struct MCPServerTests {
         })
         let failure = try call(enabled, "add_snippet", arguments)
         #expect(failure["isError"] as? Bool == true)
-        #expect(try content(failure) == "TapV 未运行，请先打开 TapV")
+        #expect(try content(failure) == "Kippet 未运行，请先打开 Kippet")
 
         appRunning = true
-        #expect(try content(call(enabled, "add_snippet", arguments)) == "已发送给 TapV")
+        #expect(try content(call(enabled, "add_snippet", arguments)) == "已发送给 Kippet")
         #expect(sent?.title == "标题")
         #expect(sent?.content == "正文\n")
         #expect(sent?.pinboardID == pinboardID)

@@ -109,7 +109,7 @@ enum ShelfShortcutAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .showShelf: "呼出 TapV"
+        case .showShelf: "呼出 Kippet"
         case .pasteStack: "粘贴栈贴下一条"
         case .search: "聚焦搜索"
         case .newSnippet: "新建片段"
@@ -165,7 +165,6 @@ final class ShelfPreferences {
     var urlCopyEnabled: Bool {
         didSet { defaults.set(urlCopyEnabled, forKey: ShelfAutomation.urlCopyEnabled) }
     }
-    var presentationMode = false
 
     private let defaults: UserDefaults
 

@@ -267,7 +267,7 @@ struct SyncEngineTests {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             archive = ClipArchive(legacyURL: root.appending(path: "History.plist"))
             try archive.write(upserting: history, removing: [])
-            suite = "TapV.SyncEngineTests.\(id)"
+            suite = "Kippet.SyncEngineTests.\(id)"
             defaults = try #require(UserDefaults(suiteName: suite))
             store = ClipboardStore(board: nil, archive: archive, preferences: defaults)
             engine = SyncEngine(store: store, defaults: defaults, deviceName: name)

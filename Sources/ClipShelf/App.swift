@@ -182,7 +182,6 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case .open:
             showShelf()
         case let .search(query):
-            guard !preferences.presentationMode else { return }
             status.showsStack = false
             status.transformClip = nil
             browser.isPreviewing = false
@@ -314,7 +313,7 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func configureWindow() {
-        window.title = "TapV"
+        window.title = "Kippet"
         window.isOpaque = false
         window.backgroundColor = .clear
         window.animationBehavior = .none
@@ -538,7 +537,7 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func showShelf() {
-        guard !preferences.presentationMode, !(status.shelfIsOpen && window.isKeyWindow) else { return }
+        guard !(status.shelfIsOpen && window.isKeyWindow) else { return }
         pasteTask?.cancel()
         let frontmost = NSWorkspace.shared.frontmostApplication
         pasteTarget = frontmost.flatMap { $0 == .current ? nil : PasteTarget(application: $0, openingShelf: true) }
@@ -738,7 +737,6 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func openPasteStack() {
-        guard !preferences.presentationMode else { return }
         status.transformClip = nil
         status.showsStack = true
         showShelf()
@@ -749,7 +747,7 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func presentSnippet(_ draft: SnippetDraft) {
-        guard !preferences.presentationMode, window.attachedSheet == nil, NSApp.modalWindow == nil else { return }
+        guard window.attachedSheet == nil, NSApp.modalWindow == nil else { return }
         showShelf()
         status.transformClip = nil
         status.showsStack = false
@@ -760,9 +758,7 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stackAttemptID += 1
         let attempt = stackAttemptID
         logStack(attempt, event: "received", outcome: trigger.rawValue)
-        let rejection: String? = if preferences.presentationMode {
-            "presentation_mode"
-        } else if status.isPastingStack {
+        let rejection: String? = if status.isPastingStack {
             "already_pasting"
         } else if status.isEditingClip {
             "editing_clip"
@@ -926,11 +922,8 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .onChange(of: [preferences.historyLimit, preferences.retentionDays]) { [weak self] _, _ in
                 self?.applyRetention()
             }
-            .onChange(of: preferences.presentationMode) { [weak self] _, enabled in
-                if enabled, self?.status.shelfIsOpen == true { self?.hideShelf(restoreApplication: false) }
-            }
             let settings = NSWindow(contentViewController: NSHostingController(rootView: content))
-            settings.title = "TapV 设置"
+            settings.title = "Kippet 设置"
             settings.styleMask = [.titled, .closable, .resizable]
             settings.isReleasedWhenClosed = false
             settings.center()
@@ -940,25 +933,17 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         preferencesWindow?.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func togglePresentationMode() {
-        preferences.presentationMode.toggle()
-        if preferences.presentationMode, status.shelfIsOpen { hideShelf(restoreApplication: false) }
-    }
-
     private func configureStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.statusItemImage()
-        item.button?.toolTip = "TapV"
+        item.button?.toolTip = "Kippet"
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        menu.addItem(menuItem("打开 TapV", action: #selector(showShelf)))
+        menu.addItem(menuItem("打开 Kippet", action: #selector(showShelf)))
         menu.addItem(menuItem("暂停记录", action: #selector(toggleCapture)))
         menu.addItem(menuItem("开启直接粘贴…", action: #selector(requestAccess)))
         menu.addItem(.separator())
-        let presentation = menuItem("演示模式", action: #selector(togglePresentationMode))
-        presentation.tag = 10
-        menu.addItem(presentation)
         menu.addItem(menuItem("设置…", action: #selector(showPreferences)))
         let stack = menuItem("粘贴栈…", action: #selector(openPasteStack))
         stack.tag = 11
@@ -967,30 +952,38 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         snippet.tag = 12
         menu.addItem(snippet)
         menu.addItem(.separator())
-        menu.addItem(menuItem("退出 TapV", action: #selector(NSApplication.terminate(_:)), target: NSApp))
+        menu.addItem(menuItem("退出 Kippet", action: #selector(NSApplication.terminate(_:)), target: NSApp))
         item.menu = menu
         statusItem = item
     }
 
     private static func statusItemImage() -> NSImage {
+        // A small keep tag, tilted like the app icon's tag, with an eyelet and two label lines cut out.
         let image = NSImage(size: NSSize(width: 16, height: 16), flipped: true) { _ in
             let mark = NSBezierPath()
-            mark.move(to: NSPoint(x: 1, y: 3.5))
-            mark.line(to: NSPoint(x: 5.2, y: 2.5))
-            mark.line(to: NSPoint(x: 6.4, y: 3.5))
-            mark.line(to: NSPoint(x: 8, y: 8))
-            mark.line(to: NSPoint(x: 10.6, y: 2.5))
-            mark.line(to: NSPoint(x: 14.2, y: 3.3))
-            mark.line(to: NSPoint(x: 15, y: 4.5))
-            mark.line(to: NSPoint(x: 10.4, y: 13.5))
-            mark.line(to: NSPoint(x: 5.6, y: 13.5))
+            mark.move(to: NSPoint(x: 3, y: 6.2))
+            mark.line(to: NSPoint(x: 6.4, y: 2))
+            mark.line(to: NSPoint(x: 9.6, y: 2))
+            mark.line(to: NSPoint(x: 13, y: 6.2))
+            mark.line(to: NSPoint(x: 13, y: 13.2))
+            mark.curve(to: NSPoint(x: 11.8, y: 14.5), controlPoint1: NSPoint(x: 13, y: 14), controlPoint2: NSPoint(x: 12.6, y: 14.5))
+            mark.line(to: NSPoint(x: 4.2, y: 14.5))
+            mark.curve(to: NSPoint(x: 3, y: 13.2), controlPoint1: NSPoint(x: 3.4, y: 14.5), controlPoint2: NSPoint(x: 3, y: 14))
             mark.close()
+            mark.append(NSBezierPath(ovalIn: NSRect(x: 6.6, y: 4, width: 2.8, height: 2.8)))
+            mark.append(NSBezierPath(roundedRect: NSRect(x: 5.2, y: 8.6, width: 5.6, height: 1.5), xRadius: 0.75, yRadius: 0.75))
+            mark.append(NSBezierPath(roundedRect: NSRect(x: 5.2, y: 11.2, width: 4, height: 1.5), xRadius: 0.75, yRadius: 0.75))
+            mark.windingRule = .evenOdd
+            var tilt = AffineTransform(translationByX: 8, byY: 8)
+            tilt.rotate(byDegrees: -14)
+            tilt.translate(x: -8, y: -8)
+            mark.transform(using: tilt)
             NSColor.black.setFill()
             mark.fill()
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "TapV"
+        image.accessibilityDescription = "Kippet"
         return image
     }
 
@@ -1001,7 +994,7 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settings = menuItem("设置…", action: #selector(showPreferences))
         settings.keyEquivalent = ","
         app.submenu?.addItem(settings)
-        app.submenu?.addItem(withTitle: "退出 TapV", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.submenu?.addItem(withTitle: "退出 Kippet", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(app)
 
         let edit = NSMenuItem()
@@ -1139,14 +1132,10 @@ final class ShelfDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 extension ShelfDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.item(at: 0)?.title = status.shortcutAvailable ? "打开 TapV   \(status.shortcutLabel)" : "打开 TapV"
-        menu.item(at: 0)?.isEnabled = !preferences.presentationMode
+        menu.item(at: 0)?.title = status.shortcutAvailable ? "打开 Kippet   \(status.shortcutLabel)" : "打开 Kippet"
         menu.item(at: 1)?.title = store.isPaused ? "恢复记录" : "暂停记录"
         updatePasteAccess()
         menu.item(at: 2)?.isHidden = status.directPasteAccess == .ready
-        menu.item(withTag: 10)?.state = preferences.presentationMode ? .on : .off
         menu.item(withTag: 11)?.title = "粘贴栈 · \(pasteStack.entries.count) 项"
-        menu.item(withTag: 11)?.isEnabled = !preferences.presentationMode
-        menu.item(withTag: 12)?.isEnabled = !preferences.presentationMode
     }
 }

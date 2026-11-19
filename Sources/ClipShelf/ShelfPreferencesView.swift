@@ -91,7 +91,7 @@ struct ShelfPreferencesView: View {
             }
 
             Section("系统") {
-                Toggle("登录时打开 TapV", isOn: Binding(
+                Toggle("登录时打开 Kippet", isOn: Binding(
                     get: { loginStatus == .enabled || loginStatus == .requiresApproval },
                     set: updateLoginItem
                 ))
@@ -145,11 +145,6 @@ struct ShelfPreferencesView: View {
 
     private var privacy: some View {
         Form {
-            Section("演示模式") {
-                Toggle("隐藏 TapV 面板", isOn: $preferences.presentationMode)
-                Text("开启后可从菜单栏退出演示模式。")
-                    .foregroundStyle(.secondary)
-            }
             Section("排除应用") {
                 ForEach(preferences.excludedApps.sorted(by: { $0.name.localizedStandardCompare($1.name) == .orderedAscending })) { app in
                     LabeledContent {

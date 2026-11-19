@@ -74,7 +74,7 @@ struct ShelfPreferencesTests {
         }
     }
 
-    @Test func preferencesPersistButPresentationModeOnlyLastsForTheSession() throws {
+    @Test func preferencesPersistAcrossReopen() throws {
         let suite = "ClipShelfPreferencesTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -90,7 +90,6 @@ struct ShelfPreferencesTests {
         preferences.setShortcut(shortcut, for: .showShelf)
         preferences.applyHistoryRetention(limit: 99, days: 400)
         preferences.copySound = true
-        preferences.presentationMode = true
 
         let app = ExcludedApp(id: "example.plaintext", name: "Text Editor")
         preferences.exclude(app)
@@ -106,7 +105,6 @@ struct ShelfPreferencesTests {
         #expect(reopened.retentionDays == 365)
         #expect(reopened.copySound)
         #expect(reopened.excludedApps == [app])
-        #expect(!reopened.presentationMode)
     }
 
     @Test func bareKeysAndShiftAloneAreNotGlobalShortcuts() throws {

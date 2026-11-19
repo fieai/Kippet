@@ -63,12 +63,12 @@ struct MCPServer {
         case "tools/call":
             let access = access()
             if !access.enabled {
-                result = Self.toolError("TapV 未开启 AI 访问，请在 设置 → 自动化 中打开")
+                result = Self.toolError("Kippet 未开启 AI 访问，请在 设置 → 自动化 中打开")
             } else if let params = request["params"] as? [String: Any], let name = params["name"] as? String,
                       let tool = Tool(rawValue: name), let arguments = (params["arguments"] ?? [:]) as? [String: Any] {
                 result = call(tool, arguments: arguments, access: access)
             } else {
-                return Self.reply(id: id, error: -32602, message: "未知的 TapV 工具或参数无效")
+                return Self.reply(id: id, error: -32602, message: "未知的 Kippet 工具或参数无效")
             }
         default:
             return Self.reply(id: id, error: -32601, message: "Method not found")
@@ -81,12 +81,12 @@ struct MCPServer {
         do {
             if tool == .addSnippet { return try addSnippet(arguments, allowed: access.snippetsEnabled) }
             let payload = try read(tool, arguments: arguments, access: access)
-            guard let json = Self.encode(payload) else { return Self.toolError("无法生成 TapV 响应") }
+            guard let json = Self.encode(payload) else { return Self.toolError("无法生成 Kippet 响应") }
             return Self.toolResult(json)
         } catch let error as ToolError {
             return Self.toolError(error.message)
         } catch {
-            return Self.toolError("无法读取 TapV 历史")
+            return Self.toolError("无法读取 Kippet 历史")
         }
     }
 
@@ -131,16 +131,16 @@ struct MCPServer {
     }
 
     private func addSnippet(_ arguments: [String: Any], allowed: Bool) throws -> [String: Any] {
-        guard allowed else { return Self.toolError("TapV 未允许 AI 新建片段，请在 设置 → 自动化 中打开") }
+        guard allowed else { return Self.toolError("Kippet 未允许 AI 新建片段，请在 设置 → 自动化 中打开") }
         let title = (arguments["title"] ?? "") as? String
         guard let title, let content = arguments["content"] as? String,
               ClipboardStore.isValidSnippet(title: title, content: content)
         else { throw ToolError.invalidArguments }
         let pinboardID = try arguments["pinboard_id"].map { _ in try Self.uuid("pinboard_id", in: arguments) }
         guard sendSnippet(Snippet(title: title, content: content, pinboardID: pinboardID)) else {
-            return Self.toolError("TapV 未运行，请先打开 TapV")
+            return Self.toolError("Kippet 未运行，请先打开 Kippet")
         }
-        return Self.toolResult("已发送给 TapV")
+        return Self.toolResult("已发送给 Kippet")
     }
 
     private static func summary(_ clip: Clip, groups: [ClipGroup]) -> [String: Any] {
@@ -256,28 +256,28 @@ struct MCPServer {
             let limit: [String: Any] = ["type": "integer", "minimum": 1, "maximum": 50, "default": 50]
             switch self {
             case .searchClips:
-                description = "Search TapV clipboard history."
+                description = "Search Kippet clipboard history."
                 properties = ["query": string, "kind": ["type": "string", "enum": ClipKind.allCases.map(\.rawValue)],
                               "limit": limit]
                 required = ["query"]
             case .listRecent:
-                description = "List the most recent TapV clips."
+                description = "List the most recent Kippet clips."
                 properties = ["limit": limit]
                 required = []
             case .getClip:
-                description = "Read a TapV clip by ID."
+                description = "Read a Kippet clip by ID."
                 properties = ["id": uuid]
                 required = ["id"]
             case .listPinboards:
-                description = "List TapV pinboards and their visible clip counts."
+                description = "List Kippet pinboards and their visible clip counts."
                 properties = [:]
                 required = []
             case .listPinboardClips:
-                description = "List clips on a TapV pinboard in their board order."
+                description = "List clips on a Kippet pinboard in their board order."
                 properties = ["pinboard_id": uuid, "limit": limit]
                 required = ["pinboard_id"]
             case .addSnippet:
-                description = "Send a new snippet to the running TapV app."
+                description = "Send a new snippet to the running Kippet app."
                 properties = ["title": string, "content": string, "pinboard_id": uuid]
                 required = ["content"]
             }

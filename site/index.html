@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kippet · Mac 剪贴板抽屉</title>
+<meta name="description" content="Kippet（拾贴）是 Mac 上的剪贴板抽屉。按 ⌥⇧V 从屏幕底部呼出最近复制的内容，回车贴回原处。历史只存在你的 Mac。">
+<link rel="icon" href="assets/favicon.png">
+<meta property="og:title" content="Kippet · 复制过的，都替你留着">
+<meta property="og:description" content="Mac 上的剪贴板抽屉。⌥⇧V 呼出，回车贴回原处。">
+<meta property="og:image" content="assets/kippet-512.png">
+<style>
+:root {
+  --bg: #F5F9F8;
+  --surface: #FFFFFF;
+  --surface-2: #EAF3F1;
+  --ink: #0F2A2B;
+  --ink-2: #4A6466;
+  --ink-3: #7D9395;
+  --line: rgba(15, 42, 43, 0.09);
+  --teal: #13A396;
+  --teal-deep: #0A6466;
+  --teal-soft: #D5ECE9;
+  --amber: #FF9F2E;
+  --amber-soft: #FFF1DC;
+  --shadow: 0 1px 2px rgba(10, 60, 62, .06), 0 12px 32px rgba(10, 60, 62, .10);
+  --radius: 18px;
+  --drawer: rgba(255, 255, 255, .72);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0C1717;
+    --surface: #132222;
+    --surface-2: #182B2B;
+    --ink: #E6F2F0;
+    --ink-2: #A3BBBA;
+    --ink-3: #6F8988;
+    --line: rgba(230, 242, 240, .09);
+    --teal: #3CCFC0;
+    --teal-deep: #2BB3A6;
+    --teal-soft: #1E3B3A;
+    --amber: #FFB04F;
+    --amber-soft: #3A2A14;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 16px 40px rgba(0,0,0,.35);
+    --drawer: rgba(28, 44, 44, .78);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0C1717; --surface: #132222; --surface-2: #182B2B; --ink: #E6F2F0; --ink-2: #A3BBBA; --ink-3: #6F8988;
+  --line: rgba(230, 242, 240, .09); --teal: #3CCFC0; --teal-deep: #2BB3A6; --teal-soft: #1E3B3A;
+  --amber: #FFB04F; --amber-soft: #3A2A14; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 16px 40px rgba(0,0,0,.35);
+  --drawer: rgba(28, 44, 44, .78);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: inherit; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+kbd {
+  font: 600 .86em/1 -apple-system, "SF Pro Text", sans-serif;
+  display: inline-block; min-width: 1.9em; text-align: center;
+  padding: .32em .5em; border-radius: 7px;
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 1.5px 0 var(--line);
+  color: var(--ink);
+}
+code { font: .9em ui-monospace, "SF Mono", Menlo, monospace; background: var(--surface-2); padding: .12em .4em; border-radius: 6px; word-break: break-all; }
+
+/* nav */
+nav { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid var(--line); }
+nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; font-size: 17px; }
+.brand img { width: 30px; height: 30px; }
+.brand small { font-weight: 500; color: var(--ink-3); font-size: 14px; }
+nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 14px; color: var(--ink-2); }
+nav .links a { text-decoration: none; }
+nav .links a:hover { color: var(--ink); }
+.btn-sm { padding: 7px 14px; border-radius: 999px; background: var(--ink); color: var(--bg) !important; font-weight: 600; }
+
+/* hero */
+.hero { text-align: center; padding: 84px 0 40px; }
+.hero .icon { width: 128px; height: 128px; filter: drop-shadow(0 18px 30px rgba(10, 100, 102, .25)); }
+.hero h1 { font-size: clamp(36px, 6vw, 60px); line-height: 1.12; letter-spacing: -.02em; margin: 24px 0 18px; font-weight: 800; }
+.hero h1 em { font-style: normal; color: var(--teal); }
+.hero p.lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--ink-2); max-width: 640px; margin: 0 auto 34px; }
+.cta { display: inline-flex; align-items: center; gap: 10px; padding: 15px 28px; border-radius: 14px; background: var(--teal-deep); color: #fff; text-decoration: none; font-weight: 700; font-size: 18px; box-shadow: 0 10px 24px rgba(10, 100, 102, .28); transition: transform .18s cubic-bezier(.16,1,.3,1), box-shadow .18s; }
+.cta:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(10, 100, 102, .34); }
+.cta:active { transform: translateY(0); }
+.cta svg { width: 20px; height: 20px; }
+.meta { margin-top: 14px; font-size: 14px; color: var(--ink-3); }
+.trust { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 22px; margin-top: 22px; font-size: 14px; color: var(--ink-2); }
+.trust span::before { content: "✓"; color: var(--teal); font-weight: 700; margin-right: 6px; }
+
+/* static drawer illustration */
+.stage { position: relative; margin: 56px auto 0; max-width: 1000px; padding: 0 0 8px; }
+.stage::before { content: ""; position: absolute; inset: 30% -10% -10%; background: radial-gradient(60% 60% at 50% 60%, color-mix(in srgb, var(--teal) 22%, transparent), transparent 70%); z-index: 0; }
+.drawer { position: relative; z-index: 1; background: var(--drawer); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); padding: 14px 16px 18px; text-align: left; }
+.bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.search { flex: 0 1 260px; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 10px; background: var(--surface-2); color: var(--ink-3); font-size: 13px; }
+.chip { font-size: 12.5px; padding: 5px 11px; border-radius: 8px; color: var(--ink-2); white-space: nowrap; }
+.chip.on { background: color-mix(in srgb, var(--teal) 16%, transparent); color: var(--teal-deep); font-weight: 600; }
+.chip .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.bar .spacer { flex: 1; }
+.cards { display: flex; gap: 14px; overflow: hidden; padding: 10px 6px 14px; margin: -10px -6px -14px; mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.card { flex: 0 0 196px; height: 214px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); padding: 12px 13px; display: flex; flex-direction: column; font-size: 13px; position: relative; }
+.card.sel { border-color: var(--teal); box-shadow: 0 0 0 3px color-mix(in srgb, var(--teal) 22%, transparent), 0 10px 24px rgba(10,100,102,.18); transform: translateY(-5px); }
+.card .head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-3); margin-bottom: 9px; }
+.card .kind { padding: 1px 7px; border-radius: 6px; font-weight: 600; font-size: 11px; }
+.k-text { background: color-mix(in srgb, #13A396 16%, transparent); color: #0E8C80; }
+.k-link { background: color-mix(in srgb, #5B5BD6 16%, transparent); color: #5050C8; }
+.k-code { background: color-mix(in srgb, #8E4EC6 16%, transparent); color: #8441BD; }
+.k-otp { background: color-mix(in srgb, #FF9F2E 20%, transparent); color: #C26A00; }
+.k-img { background: color-mix(in srgb, #F07C2A 16%, transparent); color: #C55A10; }
+.card .body { flex: 1; color: var(--ink); overflow: hidden; line-height: 1.55; }
+.card .num { position: absolute; right: 10px; bottom: 9px; font-size: 11px; color: var(--ink-3); }
+.swatch { height: 100%; border-radius: 10px; background: #2BC4B4; display: flex; align-items: flex-end; padding: 10px; color: #fff; font: 600 13px ui-monospace, "SF Mono", Menlo, monospace; }
+.code { font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre; color: var(--ink-2); }
+.code .kw { color: #8E4EC6; } .code .st { color: #0E8C80; }
+.otp { font: 700 30px/1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .08em; margin: 18px 0 10px; }
+.timer { font-size: 12px; color: #C26A00; }
+.photo { height: 100%; border-radius: 10px; background: linear-gradient(160deg, #FFC861, #FF7A59 55%, #6D4CB8); position: relative; overflow: hidden; }
+.photo::after { content: ""; position: absolute; left: -10%; right: -10%; bottom: -30%; height: 70%; background: #2B2257; border-radius: 50% 50% 0 0; opacity: .7; }
+.linkhost { color: var(--ink-3); font-size: 12px; margin-top: 6px; }
+.caption { position: relative; z-index: 1; margin-top: 16px; font-size: 13px; color: var(--ink-3); text-align: center; }
+
+/* sections */
+section { padding: 88px 0 0; scroll-margin-top: 40px; }
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: var(--teal); margin-bottom: 10px; }
+h2 { font-size: clamp(28px, 4vw, 38px); line-height: 1.2; letter-spacing: -.01em; margin: 0 0 14px; }
+.sub { color: var(--ink-2); max-width: 620px; margin: 0 0 40px; font-size: 17px; }
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: step; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; position: relative; }
+.step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--amber-soft); color: #C26A00; font-weight: 800; margin-bottom: 14px; }
+.step h3 { margin: 0 0 8px; font-size: 18px; }
+.step p { margin: 0; color: var(--ink-2); font-size: 15px; }
+.note { margin-top: 18px; padding: 14px 18px; border-radius: 14px; background: var(--surface-2); color: var(--ink-2); font-size: 14.5px; }
+
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.feat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; transition: transform .2s cubic-bezier(.16,1,.3,1), box-shadow .2s; }
+.feat:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.feat .glyph { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--teal-soft); color: var(--teal-deep); margin-bottom: 14px; }
+.feat .glyph svg { width: 20px; height: 20px; }
+.feat h3 { margin: 0 0 6px; font-size: 16.5px; }
+.feat p { margin: 0; color: var(--ink-2); font-size: 14.5px; }
+
+.privacy { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: center; background: linear-gradient(140deg, #0E7C78, #0A4F51); color: #EAF7F5; border-radius: 26px; padding: 52px; }
+.privacy h2 { color: #fff; }
+.privacy .sub { color: #BFE1DD; margin-bottom: 0; }
+.privacy ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.privacy li { display: flex; gap: 12px; font-size: 15.5px; color: #D7EEEB; }
+.privacy li b { color: #fff; display: block; }
+.privacy li::before { content: ""; flex: 0 0 8px; height: 8px; border-radius: 50%; background: var(--amber); margin-top: 9px; }
+.privacy code { background: rgba(255,255,255,.12); color: #fff; word-break: normal; overflow-wrap: anywhere; display: inline-block; margin: 4px 0; font-size: .84em; }
+
+.keys { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 40px; }
+.keyrow { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15.5px; }
+.keyrow span:first-child { color: var(--ink-2); }
+.keyrow span:last-child { display: flex; gap: 4px; flex-shrink: 0; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 0 20px; margin-bottom: 10px; }
+summary { cursor: pointer; padding: 17px 0; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--ink-3); font-weight: 400; font-size: 20px; line-height: 1; transition: transform .2s; }
+details[open] summary::after { transform: rotate(45deg); }
+details p { margin: 0 0 18px; color: var(--ink-2); font-size: 15px; }
+
+.final { text-align: center; padding: 96px 0 80px; }
+.final img { width: 84px; height: 84px; }
+.final h2 { margin-top: 18px; }
+footer { border-top: 1px solid var(--line); padding: 26px 0 40px; font-size: 13.5px; color: var(--ink-3); }
+footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+  .privacy { grid-template-columns: 1fr; padding: 36px 28px; }
+}
+@media (max-width: 680px) {
+  .wrap { padding: 0 16px; }
+  nav .links a:not(.btn-sm) { display: none; }
+  .hero { padding-top: 56px; }
+  .steps, .grid, .keys { grid-template-columns: 1fr; }
+  .card { flex-basis: 168px; height: 196px; }
+  .bar .chip:not(.on) { display: none; }
+  section { padding-top: 64px; }
+  .privacy { border-radius: 20px; padding: 30px 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/favicon.png" alt="">Kippet <small>拾贴</small></a>
+    <div class="links">
+      <a href="#start">上手</a>
+      <a href="#features">功能</a>
+      <a href="#privacy">隐私</a>
+      <a href="#faq">常见问题</a>
+      <a class="btn-sm" href="downloads/Kippet.dmg" download>下载</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <img class="icon" src="assets/kippet-512.png" alt="Kippet 图标">
+    <h1>复制过的，<br><em>都替你留着。</em></h1>
+    <p class="lede">Kippet 是 Mac 上的剪贴板抽屉。在任何输入框按 <kbd>⌥</kbd><kbd>⇧</kbd><kbd>V</kbd>，最近复制的文字、链接、图片和文件从屏幕底部滑出来，选一张按回车，直接贴回原处。</p>
+    <a class="cta" href="downloads/Kippet.dmg" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+      下载 Kippet
+    </a>
+    <div class="meta">版本 0.1.0 · macOS 14 及以上 · 已通过 Apple 公证</div>
+    <div class="trust"><span>下载即用，功能完整</span><span>无需注册账号</span><span>历史只存在这台 Mac</span></div>
+
+    <div class="stage" aria-label="Kippet 底部抽屉示意图">
+      <div class="drawer">
+        <div class="bar">
+          <div class="search">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            搜索
+          </div>
+          <span class="chip on">历史</span>
+          <span class="chip">全部收藏</span>
+          <span class="chip"><span class="dot" style="background:#FF9F2E"></span>周报</span>
+          <span class="chip"><span class="dot" style="background:#5B5BD6"></span>设计</span>
+          <span class="spacer"></span>
+        </div>
+        <div class="cards">
+          <div class="card sel">
+            <div class="head"><span class="kind k-text">文字</span>备忘录 · 刚刚</div>
+            <div class="body">下周三前把新版发给设计组过一遍，记得附上上次的反馈清单。</div>
+            <span class="num">⌘1</span>
+          </div>
+          <div class="card">
+            <div class="head"><span class="kind k-otp">验证码</span>信息 · 1 分钟前</div>
+            <div class="body"><div class="otp">482913</div><div class="timer">1:42 后删除</div></div>
+            <span class="num">⌘2</span>
+          </div>
+          <div class="card">
+            <div class="head"><span class="kind k-text">颜色</span>Figma</div>
+            <div class="body"><div class="swatch">#2BC4B4</div></div>
+            <span class="num">⌘3</span>
+          </div>
+          <div class="card">
+            <div class="head"><span class="kind k-code">Swift</span>Xcode</div>
+            <div class="body code"><span class="kw">let</span> shelf = <span class="kw">try</span> Shelf(
+  name: <span class="st">"周报"</span>,
+  pinned: <span class="kw">true</span>
+)</div>
+            <span class="num">⌘4</span>
+          </div>
+          <div class="card">
+            <div class="head"><span class="kind k-img">图片</span>截图</div>
+            <div class="body"><div class="photo"></div></div>
+            <span class="num">⌘5</span>
+          </div>
+          <div class="card">
+            <div class="head"><span class="kind k-link">链接</span>Safari</div>
+            <div class="body">Swift 并发编程指南<div class="linkhost">developer.apple.com</div></div>
+            <span class="num">⌘6</span>
+          </div>
+        </div>
+      </div>
+      <div class="caption">按 <kbd>⌥</kbd><kbd>⇧</kbd><kbd>V</kbd> 呼出，方向键选卡，回车贴回</div>
+    </div>
+  </div>
+</header>
+
+<section id="start">
+  <div class="wrap">
+    <div class="eyebrow">三步上手</div>
+    <h2>下载、拖进去、开始复制</h2>
+    <p class="sub">不用注册，不用配置，打开后复制的东西就开始记下来。</p>
+    <div class="steps">
+      <div class="step">
+        <h3>安装</h3>
+        <p>打开下载的 DMG，把 Kippet 拖进「应用程序」文件夹。</p>
+      </div>
+      <div class="step">
+        <h3>打开</h3>
+        <p>菜单栏出现小标签图标，Kippet 就在后台记录了。系统询问时，允许它读取剪贴板。</p>
+      </div>
+      <div class="step">
+        <h3>呼出、贴回</h3>
+        <p>在任何输入框按 <kbd>⌥</kbd><kbd>⇧</kbd><kbd>V</kbd>，选一张卡片按回车。</p>
+      </div>
+    </div>
+    <div class="note">想按回车直接贴回原输入框，需要在「系统设置 → 隐私与安全性 → 辅助功能」里打开 Kippet。不开也能用：选好后内容已经在剪贴板里，按 <kbd>⌘</kbd><kbd>V</kbd> 即可。</div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">功能</div>
+    <h2>不只是记下来，还帮你贴对</h2>
+    <p class="sub">常用的操作都有快捷键，手不用离开键盘。</p>
+    <div class="grid">
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 13V9M12 13V7M17 13V9"/></svg></div>
+        <h3>底部抽屉</h3>
+        <p>横向卡片一眼扫过。方向键选卡，空格预览，直接打字就是搜索，<kbd>⌘</kbd>1–9 快贴前九项。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M4 12h16M4 17h7"/><path d="m16 15 3 3-3 3"/></svg></div>
+        <h3>处理后粘贴</h3>
+        <p>按 <kbd>⌥</kbd><kbd>↩</kbd> 整理空白、格式化 JSON、去掉链接追踪参数，或粘贴为纯文本、Markdown、HTML。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/></svg></div>
+        <h3>认得出内容</h3>
+        <p>颜色显示色块，代码带高亮，验证码单独突出。图片里的文字和二维码在本机识别，能搜到。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4"/><path d="M7 7h10l-1.5 5h-7Z"/><path d="M12 12v5"/></svg></div>
+        <h3>钉板和片段</h3>
+        <p>常用的加星标、归进带颜色的钉板。写好的片段按 <kbd>⌘</kbd><kbd>N</kbd> 存下，随时贴。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <h3>自动规则</h3>
+        <p>按来源或内容自动归档、加星、到期删除。验证码 2 分钟后清掉，密码管理器的内容默认不记。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="5" rx="1.5"/><rect x="5" y="10" width="14" height="5" rx="1.5"/><rect x="5" y="17" width="14" height="4" rx="1.5"/></svg></div>
+        <h3>粘贴栈</h3>
+        <p>先收集一串，回到输入框按 <kbd>⌃</kbd><kbd>⌥</kbd><kbd>V</kbd>，一条接一条往下贴。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.5A4.5 4.5 0 0 0 17.5 8 6 6 0 0 0 6 9.5 4 4 0 0 0 6.5 17.5H20"/></svg></div>
+        <h3>多台 Mac 同步</h3>
+        <p>选一个 iCloud Drive 或其他云盘文件夹，收藏、钉板和片段自动同步。普通历史不离开本机。</p>
+      </div>
+      <div class="feat">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12"/></svg></div>
+        <h3>快捷指令和 AI</h3>
+        <p><code>clipshelf://</code> 链接接入快捷指令、Raycast。打开开关后，Claude、Cursor 可通过本机 MCP 查历史。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <div class="privacy">
+      <div>
+        <div class="eyebrow" style="color:#FFC861">隐私</div>
+        <h2>你复制的东西，只在你的 Mac 上</h2>
+        <p class="sub">Kippet 没有账号，没有服务器，也不收集使用数据。</p>
+      </div>
+      <ul>
+        <li><span><b>历史存在本机</b>保存在 <code>~/Library/Application Support/ClipShelf</code>，不会上传。</span></li>
+        <li><span><b>敏感内容不记</b>密码管理器复制的内容默认跳过，可以暂停记录或排除某个应用。</span></li>
+        <li><span><b>同步走你自己的文件夹</b>只同步收藏、钉板和片段，普通历史和验证码留在这台 Mac。</span></li>
+        <li><span><b>只在你点的时候联网</b>只有点「加载链接预览」时才会访问那个网页。</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="keys">
+  <div class="wrap">
+    <div class="eyebrow">快捷键</div>
+    <h2>记住这几个就够了</h2>
+    <p class="sub">呼出快捷键可以在「设置 → 快捷键」里改。</p>
+    <div class="keys">
+      <div class="keyrow"><span>呼出 Kippet</span><span><kbd>⌥</kbd><kbd>⇧</kbd><kbd>V</kbd></span></div>
+      <div class="keyrow"><span>粘贴选中的卡片</span><span><kbd>↩</kbd></span></div>
+      <div class="keyrow"><span>粘贴为纯文本</span><span><kbd>⇧</kbd><kbd>↩</kbd></span></div>
+      <div class="keyrow"><span>处理后粘贴</span><span><kbd>⌥</kbd><kbd>↩</kbd></span></div>
+      <div class="keyrow"><span>预览</span><span><kbd>空格</kbd></span></div>
+      <div class="keyrow"><span>快贴前九项</span><span><kbd>⌘</kbd><kbd>1</kbd>–<kbd>9</kbd></span></div>
+      <div class="keyrow"><span>加星标</span><span><kbd>⌘</kbd><kbd>S</kbd></span></div>
+      <div class="keyrow"><span>删除 / 撤销删除</span><span><kbd>⌫</kbd> <kbd>⌘</kbd><kbd>Z</kbd></span></div>
+      <div class="keyrow"><span>粘贴栈贴下一条</span><span><kbd>⌃</kbd><kbd>⌥</kbd><kbd>V</kbd></span></div>
+      <div class="keyrow"><span>新建片段</span><span><kbd>⌘</kbd><kbd>N</kbd></span></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="eyebrow">常见问题</div>
+    <h2>你可能想问</h2>
+    <div style="margin-top:28px">
+      <details>
+        <summary>需要什么系统？</summary>
+        <p>macOS 14 Sonoma 及以上，Apple 芯片和 Intel 芯片的 Mac 都能用。</p>
+      </details>
+      <details>
+        <summary>为什么要辅助功能权限？</summary>
+        <p>只用来在你选好卡片后替你按一下 <kbd>⌘</kbd><kbd>V</kbd>，把内容贴回原来的输入框。不开也能用，选好后自己按 <kbd>⌘</kbd><kbd>V</kbd> 就行。</p>
+      </details>
+      <details>
+        <summary>会记下我的密码吗？</summary>
+        <p>密码管理器复制的内容带机密标记，Kippet 默认跳过。复制其他敏感内容前，可以从菜单栏「暂停记录」，或在设置里排除某个应用。</p>
+      </details>
+      <details>
+        <summary>能存多少条？</summary>
+        <p>普通历史默认保留 1,000 条，可以在设置里按条数或天数调整。加星标和钉板里的内容不受这个限制。</p>
+      </details>
+      <details>
+        <summary>怎么卸载？</summary>
+        <p>从菜单栏退出 Kippet，把它从「应用程序」拖到废纸篓。想连历史一起删，再删除 <code>~/Library/Application Support/ClipShelf</code> 文件夹。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<div class="final">
+  <div class="wrap">
+    <img src="assets/kippet-512.png" alt="">
+    <h2>下次复制，就不怕找不回来了</h2>
+    <p class="sub" style="margin:0 auto 30px">下载后拖进「应用程序」，打开就能用。</p>
+    <a class="cta" href="downloads/Kippet.dmg" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+      下载 Kippet
+    </a>
+    <div class="meta">版本 0.1.0 · macOS 14 及以上</div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>Kippet（拾贴）· Mac 剪贴板抽屉</span>
+    <span>© 2026 Kippet</span>
+  </div>
+</footer>
+
+</body>
+</html>
