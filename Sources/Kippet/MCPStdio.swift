@@ -11,7 +11,7 @@ enum MCPStdio {
                 guard let defaults else { return .init() }
                 return ShelfPreferences.mcpAccess(from: defaults, domain: ShelfAutomation.bundleID)
             },
-            loadHistory: { try ClipArchive.live.load(readOnly: true) },
+            loadHistory: { try ClipArchive.live.load(readOnly: true, materializingImages: false) },
             sendSnippet: sendSnippet
         )
         while let line = readLine() {

@@ -34,6 +34,8 @@ enum CodeLanguage: String, Sendable {
     case go = "Go"
     case rust = "Rust"
     case other = "其他"
+
+    var label: String { self == .other ? L(rawValue) : rawValue }
 }
 
 enum ContentDetector {

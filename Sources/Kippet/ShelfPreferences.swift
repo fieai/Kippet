@@ -94,7 +94,7 @@ struct ShelfShortcut: Codable, Equatable, Sendable {
            !characters.isEmpty, characters.rangeOfCharacter(from: .controlCharacters) == nil {
             return characters.uppercased()
         }
-        return "键 \(event.keyCode)"
+        return L("键 %lld", Int(event.keyCode))
     }
 }
 
@@ -109,10 +109,10 @@ enum ShelfShortcutAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .showShelf: "呼出 Kippet"
-        case .pasteStack: "粘贴栈贴下一条"
-        case .search: "聚焦搜索"
-        case .newSnippet: "新建片段"
+        case .showShelf: L("呼出 Kippet")
+        case .pasteStack: L("粘贴栈贴下一条")
+        case .search: L("聚焦搜索")
+        case .newSnippet: L("新建片段")
         }
     }
 
@@ -153,6 +153,13 @@ final class ShelfPreferences {
     var copySound: Bool {
         didSet { defaults.set(copySound, forKey: Key.copySound) }
     }
+    var autoCheckUpdates: Bool {
+        didSet { defaults.set(autoCheckUpdates, forKey: Key.autoCheckUpdates) }
+    }
+    var hasCompletedUsageGuide: Bool {
+        get { defaults.bool(forKey: Key.usageGuideCompleted) }
+        set { defaults.set(newValue, forKey: Key.usageGuideCompleted) }
+    }
     var lastPasteTransform: PasteTransform? {
         didSet { defaults.set(lastPasteTransform?.rawValue, forKey: Key.lastPasteTransform) }
     }
@@ -181,6 +188,7 @@ final class ShelfPreferences {
         excludedApps = Self.decodeExcludedApps(defaults.data(forKey: Key.excludedApps))
         rules = Self.decodeRules(defaults.data(forKey: Key.rules))
         copySound = defaults.bool(forKey: Key.copySound)
+        autoCheckUpdates = defaults.bool(forKey: Key.autoCheckUpdates)
         lastPasteTransform = defaults.string(forKey: Key.lastPasteTransform).flatMap(PasteTransform.init(rawValue:))
         mcpEnabled = defaults.bool(forKey: ShelfAutomation.mcpEnabled)
         mcpSnippetsEnabled = defaults.bool(forKey: ShelfAutomation.mcpSnippetsEnabled)
@@ -264,6 +272,8 @@ final class ShelfPreferences {
         static let excludedApps = "excludedApps"
         static let rules = "clipRules"
         static let copySound = "copySound"
+        static let autoCheckUpdates = "autoCheckUpdates"
+        static let usageGuideCompleted = "usageGuideCompleted"
         static let lastPasteTransform = "lastPasteTransform"
     }
 

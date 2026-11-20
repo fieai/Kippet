@@ -23,7 +23,7 @@ final class DetectionCache {
     }
 
     func result(for clip: Clip) -> DetectedContent? {
-        guard case let .text(text, _, _) = clip.payload else { return nil }
+        guard case let .text(text, _, _) = clip.storedPayload else { return nil }
 
         let byteCount = text.utf8.count
         guard byteCount <= Self.maxTextBytes else { return nil }

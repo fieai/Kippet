@@ -26,14 +26,14 @@ enum ShelfDrag {
     }
 
     static func writers(for clip: Clip) -> [any NSPasteboardWriting] {
-        if !clip.hasPendingSyncImage, case let .image(data, format) = clip.previewPayload,
-           let type = UTType(format), type.conforms(to: .image) {
-            return [ImagePromise(clipID: clip.id, data: data, type: type)]
+        let image = clip.hasPreviewImage ? (try? clip.readPreviewImage()) : nil
+        if let image, let type = UTType(image.format), type.conforms(to: .image) {
+            return [ImagePromise(clipID: clip.id, data: image.data, type: type)]
         }
 
         let item = NSPasteboardItem()
         item.setData(Data(clip.id.uuidString.utf8), forType: cardType)
-        switch clip.payload {
+        switch clip.storedPayload {
         case let .text(text, rtf, html):
             item.setString(text, forType: .string)
             if let rtf { item.setData(rtf, forType: .rtf) }
@@ -46,8 +46,8 @@ enum ShelfDrag {
                 if index == 0 { return FileItem(url: url, clipID: clip.id) }
                 return url as NSURL
             }
-        case let .image(data, format):
-            if !clip.hasPendingSyncImage { item.setData(data, forType: NSPasteboard.PasteboardType(format)) }
+        case .image:
+            if let image { item.setData(image.data, forType: NSPasteboard.PasteboardType(image.format)) }
         }
         return [item]
     }
@@ -106,7 +106,7 @@ enum ShelfDrag {
         }
 
         func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-            "Kippet 图片.\(type.preferredFilenameExtension ?? "image")"
+            L("Kippet 图片.%@", type.preferredFilenameExtension ?? "image")
         }
 
         func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
@@ -141,14 +141,14 @@ struct ShelfDragHandle: NSViewRepresentable {
 
         var label: String {
             switch self {
-            case .card: "拖出卡片"
-            case .pinboard: "拖动排序钉板"
+            case .card: L("拖出卡片")
+            case .pinboard: L("拖动排序钉板")
             }
         }
 
         var symbol: String {
             switch self {
-            case let .card(clip): clip.payload.kind.symbol
+            case let .card(clip): clip.storedPayload.kind.symbol
             case .pinboard: "folder"
             }
         }

@@ -8,6 +8,7 @@ struct ShelfPreferencesView: View {
     @Bindable var preferences: ShelfPreferences
     let store: ClipboardStore
     let sync: SyncEngine
+    let updateChecker: ShelfUpdateChecker
     var onApplyShortcut: (ShelfShortcutAction, ShelfShortcut) -> String?
     var onRecordingChange: (Bool) -> Void
 
@@ -23,6 +24,7 @@ struct ShelfPreferencesView: View {
     init(
         store: ClipboardStore,
         sync: SyncEngine,
+        updateChecker: ShelfUpdateChecker,
         onApplyShortcut: @escaping (ShelfShortcutAction, ShelfShortcut) -> String?,
         onRecordingChange: @escaping (Bool) -> Void
     ) {
@@ -30,6 +32,7 @@ struct ShelfPreferencesView: View {
         self.preferences = preferences
         self.store = store
         self.sync = sync
+        self.updateChecker = updateChecker
         self.onApplyShortcut = onApplyShortcut
         self.onRecordingChange = onRecordingChange
         _limitDraft = State(initialValue: String(preferences.historyLimit))
@@ -101,6 +104,27 @@ struct ShelfPreferencesView: View {
                 if let loginError { Text(loginError).foregroundStyle(.red) }
                 Toggle("复制提示音", isOn: $preferences.copySound)
             }
+
+            Section("软件更新") {
+                Toggle("自动检查更新", isOn: $preferences.autoCheckUpdates)
+                HStack {
+                    Button("检查更新", action: updateChecker.check)
+                        .disabled(updateChecker.state == .checking)
+                    switch updateChecker.state {
+                    case .idle:
+                        EmptyView()
+                    case .checking:
+                        Text("正在检查…").foregroundStyle(.secondary)
+                    case .current:
+                        Text("已是最新版本").foregroundStyle(.secondary)
+                    case let .available(release):
+                        Text(L("有新版本 %@", release.versionLabel))
+                        Link("前往下载", destination: release.downloadURL)
+                    case .failed:
+                        Text("无法检查更新").foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -123,9 +147,9 @@ struct ShelfPreferencesView: View {
                 HStack {
                     ShortcutRecorder(
                         label: preferences.shortcut(for: action).label,
-                        accessibilityLabel: "录制\(action.title)快捷键",
+                        accessibilityLabel: L("录制%@快捷键", action.title),
                         onRecord: { applyShortcut($0, for: action) },
-                        onInvalid: { shortcutError = (action, "请按下包含 ⌃、⌥ 或 ⌘ 的组合键。") },
+                        onInvalid: { shortcutError = (action, L("请按下包含 ⌃、⌥ 或 ⌘ 的组合键。")) },
                         onRecordingChange: { recording in
                             if recording { shortcutError = nil }
                             onRecordingChange(recording)
@@ -134,7 +158,7 @@ struct ShelfPreferencesView: View {
                     .frame(width: 120, height: 26)
                     Button("恢复默认") { applyShortcut(action.defaultShortcut, for: action) }
                         .disabled(preferences.shortcut(for: action) == action.defaultShortcut)
-                        .accessibilityLabel("恢复\(action.title)默认快捷键")
+                        .accessibilityLabel(L("恢复%@默认快捷键", action.title))
                 }
             }
             if let shortcutError, shortcutError.action == action {
@@ -149,7 +173,7 @@ struct ShelfPreferencesView: View {
                 ForEach(preferences.excludedApps.sorted(by: { $0.name.localizedStandardCompare($1.name) == .orderedAscending })) { app in
                     LabeledContent {
                         Button("移除") { preferences.removeExcludedApp(app.id) }
-                            .accessibilityLabel("移除 \(app.name)")
+                            .accessibilityLabel(L("移除 %@", app.name))
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(app.name)
@@ -221,7 +245,7 @@ struct ShelfPreferencesView: View {
             }
             loginError = nil
         } catch {
-            loginError = "登录项更新失败。\(error.localizedDescription)"
+            loginError = L("登录项更新失败。%@", error.localizedDescription)
         }
         refreshLoginItem()
     }
@@ -242,9 +266,9 @@ struct ShelfPreferencesView: View {
                     ?? url.deletingPathExtension().lastPathComponent
                 preferences.exclude(ExcludedApp(id: id, name: name))
             }
-            appSelectionError = skipped == 0 ? nil : "有 \(skipped) 个应用无法读取标识。"
+            appSelectionError = skipped == 0 ? nil : L("有 %lld 个应用无法读取标识。", skipped)
         case .failure(let error):
-            appSelectionError = "无法添加应用。\(error.localizedDescription)"
+            appSelectionError = L("无法添加应用。%@", error.localizedDescription)
         }
     }
 }
@@ -302,7 +326,7 @@ private struct ShortcutRecorder: NSViewRepresentable {
                 return nil
             }
             guard monitor != nil else { return }
-            title = "请按快捷键…"
+            title = L("请按快捷键…")
             onRecordingChange?(true)
             keyWindowObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification, object: window, queue: .main

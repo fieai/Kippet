@@ -27,19 +27,20 @@ struct ShelfRulesView: View {
     }
 
     private func ruleRow(_ rule: ClipRule, sources: [ClipSource]) -> some View {
+        let name = rule.displayName
         let group = store.groups.first { $0.id == rule.action.groupID }
         let isUnassignedColorPreset = rule.id == ClipRule.colorPresetID
             && rule.action.groupID == ClipRule.colorPresetID && !rule.isEnabled
         let missingGroup = rule.action.groupID != nil && group == nil && !isUnassignedColorPreset
         return HStack(spacing: 10) {
-            Toggle("启用\(rule.name)", isOn: Binding(
+            Toggle(L("启用%@", name), isOn: Binding(
                 get: { rule.isEnabled },
                 set: { store.setRuleEnabled(rule.id, enabled: $0) }
             ))
             .toggleStyle(.checkbox)
             .labelsHidden()
             VStack(alignment: .leading, spacing: 4) {
-                Text(rule.name)
+                Text(name)
                 Text(summary(rule, group: group, isUnassignedColorPreset: isUnassignedColorPreset, sources: sources))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -57,7 +58,7 @@ struct ShelfRulesView: View {
             Button(role: .destructive) {
                 preferences.rules.removeAll { $0.id == rule.id }
             } label: {
-                Label("删除\(rule.name)", systemImage: "trash")
+                Label(L("删除%@", name), systemImage: "trash")
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
@@ -71,24 +72,24 @@ struct ShelfRulesView: View {
         var conditions: [String] = []
         if let ids = rule.match.sourceBundleIdentifiers {
             let names = ids.map { ruleSourceName($0, sources: sources) }
-            conditions.append("来自 " + names.joined(separator: "、"))
+            conditions.append(L("来自 %@", names.joined(separator: L("、"))))
         }
-        if let kinds = rule.match.kinds { conditions.append(kinds.map(\.label).joined(separator: "、")) }
-        if let types = rule.match.detected { conditions.append(types.map(\.label).joined(separator: "、")) }
-        if let contains = rule.match.textContains { conditions.append("包含「\(contains)」") }
-        if let regex = rule.match.regex { conditions.append("正则「\(regex)」") }
+        if let kinds = rule.match.kinds { conditions.append(kinds.map(\.label).joined(separator: L("、"))) }
+        if let types = rule.match.detected { conditions.append(types.map(\.label).joined(separator: L("、"))) }
+        if let contains = rule.match.textContains { conditions.append(L("包含「%@」", contains)) }
+        if let regex = rule.match.regex { conditions.append(L("正则「%@」", regex)) }
         let action: String
         switch rule.action {
         case .addToGroup:
-            let name = group?.name ?? (isUnassignedColorPreset ? "颜色" : "已删除的钉板")
-            action = "归入「\(name)」"
-        case .favorite: action = "加星标"
+            let name = group?.name ?? (isUnassignedColorPreset ? L("颜色") : L("已删除的钉板"))
+            action = L("归入「%@」", name)
+        case .favorite: action = L("加星标")
         case let .expire(after: seconds):
-            let label = seconds == 120 ? "2 分钟" : expiryChoices.first { $0.seconds == seconds }?.label
-            action = "\(label ?? "\(seconds.formatted()) 秒")后删除"
-        case .skip: action = "跳过记录"
+            let label = seconds == 120 ? L("2 分钟") : expiryChoices.first { $0.seconds == seconds }?.label
+            action = L("%@后删除", label ?? L("%@ 秒", seconds.formatted()))
+        case .skip: action = L("跳过记录")
         }
-        return (conditions.isEmpty ? "全部内容" : conditions.joined(separator: " · ")) + " → " + action
+        return (conditions.isEmpty ? L("全部内容") : conditions.joined(separator: " · ")) + " → " + action
     }
 }
 
@@ -105,11 +106,17 @@ struct ClipRuleEditor: View {
     @State private var pickedApps: [String: String] = [:]
     @State private var appSelectionError: String?
 
-    private enum ActionChoice: String, CaseIterable {
-        case pinboard = "归入钉板"
-        case favorite = "加星标"
-        case expire = "到期删除"
-        case skip = "跳过记录"
+    private enum ActionChoice: CaseIterable {
+        case pinboard, favorite, expire, skip
+
+        var label: String {
+            switch self {
+            case .pinboard: L("归入钉板")
+            case .favorite: L("加星标")
+            case .expire: L("到期删除")
+            case .skip: L("跳过记录")
+            }
+        }
     }
 
     init(rule: ClipRule, store: ClipboardStore) {
@@ -150,7 +157,7 @@ struct ClipRuleEditor: View {
                 .toggleStyle(.checkbox)
                 Section("操作") {
                     Picker("操作", selection: $action) {
-                        ForEach(ActionChoice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        ForEach(ActionChoice.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
                     switch action {
                     case .pinboard:
@@ -163,7 +170,7 @@ struct ClipRuleEditor: View {
                             }
                         }
                     case .expire:
-                        Stepper("删除时限 \(expiryChoices[expiryIndex].label)", value: $expiryIndex,
+                        Stepper(L("删除时限 %@", expiryChoices[expiryIndex].label), value: $expiryIndex,
                                 in: 0...(expiryChoices.count - 1))
                     case .favorite, .skip:
                         EmptyView()
@@ -211,7 +218,7 @@ struct ClipRuleEditor: View {
                     Button("选择应用…") { pickingApps = true }
                 }
                 if !chosen.isEmpty {
-                    Text(chosen.map { apps[$0] ?? $0 }.joined(separator: "、"))
+                    Text(chosen.map { apps[$0] ?? $0 }.joined(separator: L("、")))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -272,9 +279,9 @@ struct ClipRuleEditor: View {
                     match.sourceBundleIdentifiers = chosen
                 }
             }
-            appSelectionError = skipped == 0 ? nil : "有 \(skipped) 个应用无法读取标识。"
+            appSelectionError = skipped == 0 ? nil : L("有 %lld 个应用无法读取标识。", skipped)
         case .failure(let error):
-            appSelectionError = "无法选择应用。\(error.localizedDescription)"
+            appSelectionError = L("无法选择应用。%@", error.localizedDescription)
         }
     }
 
@@ -288,8 +295,8 @@ struct ClipRuleEditor: View {
 }
 
 private let expiryChoices: [(seconds: TimeInterval, label: String)] = [
-    (60, "1 分钟"), (300, "5 分钟"), (900, "15 分钟"),
-    (3_600, "1 小时"), (86_400, "1 天"), (604_800, "7 天"),
+    (60, L("1 分钟")), (300, L("5 分钟")), (900, L("15 分钟")),
+    (3_600, L("1 小时")), (86_400, L("1 天")), (604_800, L("7 天")),
 ]
 
 @MainActor

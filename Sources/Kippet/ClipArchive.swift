@@ -14,20 +14,32 @@ struct ClipArchive: Sendable {
         databaseURL = legacyURL.deletingPathExtension().appendingPathExtension("sqlite3")
     }
 
-    func load(readOnly: Bool = false) throws -> (clips: [Clip], groups: [ClipGroup]) {
+    func load(readOnly: Bool = false, materializingImages: Bool = true) throws -> (clips: [Clip], groups: [ClipGroup]) {
         if readOnly, !FileManager.default.fileExists(atPath: databaseURL.path) { return ([], []) }
         let library = try loadLibrary(readOnly: readOnly)
-        return (library.clips, library.groups)
+        let clips = materializingImages ? try library.clips.map { try $0.materializedImages() } : library.clips
+        return (clips, library.groups)
     }
 
-    func loadLibrary(readOnly: Bool = false) throws -> (clips: [Clip], groups: [ClipGroup], tombstones: [SyncTombstone]) {
+    func loadLibrary(readOnly: Bool = false) throws -> (
+        clips: [Clip], groups: [ClipGroup], tombstones: [SyncTombstone], searchToken: String?
+    ) {
         try withDatabase(readOnly: readOnly) { db in
-            try db.transaction("BEGIN") {
+            if !readOnly {
+                // A failed upgrade leaves the original rows readable and can be retried.
+                try? migrateInlineImages(db)
+                db.prepareSearchIndex()
+            }
+            return try db.transaction("BEGIN") {
                 let decoder = PropertyListDecoder()
                 let clips = try db.withStatement("SELECT content FROM clips ORDER BY position DESC") { statement in
                     var clips: [Clip] = []
                     while try db.nextRow(statement) {
-                        clips.append(try decoder.decode(Clip.self, from: db.data(in: statement)))
+                        var clip = try decoder.decode(Clip.self, from: db.data(in: statement))
+                        if clip.imageBlob != nil || clip.snapshotBlob != nil {
+                            clip.blobSource = ClipBlobSource(archive: self)
+                        }
+                        clips.append(clip)
                     }
                     return clips
                 }
@@ -40,7 +52,8 @@ struct ClipArchive: Sendable {
                     guard try db.nextRow(statement) else { return [SyncTombstone]() }
                     return try decoder.decode([SyncTombstone].self, from: db.data(in: statement))
                 }
-                return (clips, groups, tombstones)
+                let searchToken = try? db.searchIndexToken()
+                return (clips, groups, tombstones, searchToken)
             }
         }
     }
@@ -48,14 +61,22 @@ struct ClipArchive: Sendable {
     // Supply newest clips first when inserting or moving more than one.
     func write(
         upserting: [Clip], removing: [Clip.ID], groups: [ClipGroup]? = nil, order: [Clip.ID]? = nil,
-        tombstones: [SyncTombstone]? = nil
+        tombstones: [SyncTombstone]? = nil, searchToken: String = UUID().uuidString
     ) throws {
         guard !upserting.isEmpty || !removing.isEmpty || groups != nil || tombstones != nil else { return }
+        let prepared = upserting.map { clip in
+            var clip = externalizingImages(clip)
+            if clip.contentHash == nil { clip.contentHash = clip.computeContentHash() }
+            return clip
+        }
         try withDatabase { db in
+            try db.ensureBlobTable()
+            db.prepareSearchIndex()
             try db.transaction {
                 let encoder = PropertyListEncoder()
                 encoder.outputFormat = .binary
-                try db.upsert(upserting, encoder: encoder)
+                try db.upsert(prepared, encoder: encoder)
+                for clip in prepared { try db.writeBlobs(for: clip) }
                 if !removing.isEmpty {
                     try db.withStatement("DELETE FROM clips WHERE id = ?") { statement in
                         for id in removing {
@@ -64,6 +85,8 @@ struct ClipArchive: Sendable {
                         }
                     }
                 }
+                try db.updateSearchIndex(upserting: prepared, removing: removing, token: searchToken)
+                if try db.schemaVersion() == 1 { try db.execute("PRAGMA user_version = 2") }
                 if let order { try db.restoreOrder(order) }
                 if let groups {
                     try db.withStatement("""
@@ -85,9 +108,10 @@ struct ClipArchive: Sendable {
                 }
             }
         }
+        for clip in prepared { clip.blobSource?.didPersist() }
     }
 
-    private func withDatabase<T>(readOnly: Bool = false, _ body: (Database) throws -> T) throws -> T {
+    func withDatabase<T>(readOnly: Bool = false, busyTimeout: Int32 = 2_000, _ body: (Database) throws -> T) throws -> T {
         if !readOnly {
             try FileManager.default.createDirectory(
                 at: databaseURL.deletingLastPathComponent(),
@@ -103,9 +127,10 @@ struct ClipArchive: Sendable {
             throw ArchiveError.database(String(cString: sqlite3_errstr(result)))
         }
         let db = Database(handle: handle)
-        try db.check(sqlite3_busy_timeout(handle, 2_000))
+        try db.check(sqlite3_busy_timeout(handle, busyTimeout))
+        if !readOnly { try db.execute("PRAGMA foreign_keys = ON") }
         let version = try db.schemaVersion()
-        if version != 1 {
+        if version != 1, version != 2 {
             if readOnly { throw ArchiveError.unsupportedVersion(version) }
             try migrate(db)
         }
@@ -115,7 +140,7 @@ struct ClipArchive: Sendable {
     private func migrate(_ db: Database) throws {
         try db.transaction {
             switch try db.schemaVersion() {
-            case 1: return // Another connection already migrated the archive.
+            case 1, 2: return // Another connection already initialized the archive.
             case 0: break
             case let version: throw ArchiveError.unsupportedVersion(version)
             }
@@ -136,18 +161,21 @@ struct ClipArchive: Sendable {
                 """)
             let encoder = PropertyListEncoder()
             encoder.outputFormat = .binary
-            try db.upsert(clips, encoder: encoder)
-            try db.execute("PRAGMA user_version = 1")
+            try db.ensureBlobTable()
+            let prepared = clips.map(externalizingImages)
+            try db.upsert(prepared, encoder: encoder)
+            for clip in prepared { try db.writeBlobs(for: clip) }
+            try db.finishImageMigration()
         }
     }
 }
 
-private enum ArchiveError: Error {
+enum ArchiveError: Error {
     case database(String)
     case unsupportedVersion(Int32)
 }
 
-private struct Database {
+struct Database {
     let handle: OpaquePointer
     static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -231,14 +259,34 @@ private struct Database {
     }
 
     func bind(_ data: Data, to statement: OpaquePointer, at index: Int32) throws {
+        if data.isEmpty {
+            try check(sqlite3_bind_zeroblob(statement, index, 0))
+            return
+        }
         try data.withUnsafeBytes { bytes in
             try check(sqlite3_bind_blob64(statement, index, bytes.baseAddress, UInt64(bytes.count), Self.transient))
         }
     }
 
+    func bind(_ value: String, to statement: OpaquePointer, at index: Int32) throws {
+        let length = Int32(value.utf8.count)
+        try value.withCString { pointer in
+            try check(sqlite3_bind_text(statement, index, pointer, length, Self.transient))
+        }
+    }
+
+    func hasTable(_ name: String) throws -> Bool {
+        try withStatement("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?") { statement in
+            try bind(name, to: statement, at: 1)
+            return try nextRow(statement)
+        }
+    }
+
     func data(in statement: OpaquePointer) throws -> Data {
+        let count = Int(sqlite3_column_bytes(statement, 0))
+        if count == 0, sqlite3_column_type(statement, 0) == SQLITE_BLOB { return Data() }
         guard let bytes = sqlite3_column_blob(statement, 0) else { throw error }
-        return Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 0)))
+        return Data(bytes: bytes, count: count)
     }
 
     func nextRow(_ statement: OpaquePointer) throws -> Bool {

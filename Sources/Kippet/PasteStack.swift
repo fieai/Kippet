@@ -24,7 +24,8 @@ final class PasteStack {
     func append(_ clips: [Clip]) -> Bool {
         let totalSize = entries.reduce(0) { $0 + $1.clip.size } + clips.reduce(0) { $0 + $1.size }
         guard entries.count + clips.count <= 50, totalSize <= 64 * 1_024 * 1_024 else { return false }
-        entries.append(contentsOf: clips.map { Entry(clip: $0) })
+        guard let entriesToAppend = try? clips.map({ Entry(clip: try $0.materializedImages()) }) else { return false }
+        entries.append(contentsOf: entriesToAppend)
         return true
     }
 

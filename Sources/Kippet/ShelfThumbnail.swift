@@ -43,8 +43,7 @@ struct ShelfThumbnail: View {
         .task(id: clip.hasPendingSyncImage ? nil : key, priority: .utility) {
             guard rendered?.key != key, !Task.isCancelled,
                   !clip.hasPendingSyncImage,
-                  case let .image(data, _) = clip.previewPayload,
-                  let image = await ThumbnailRenderer.shared.image(for: key, data: data),
+                  let image = await ThumbnailRenderer.shared.image(for: key, clip: clip),
                   !Task.isCancelled
             else { return }
             withAnimation(.easeOut(duration: 0.18)) { rendered = Rendered(key: key, image: image) }
@@ -62,17 +61,19 @@ struct ShelfThumbnail: View {
 private struct ThumbnailKey: Hashable, Sendable {
     let clipID: Clip.ID
     let revisedAt: Date
+    let digest: SyncBlob?
     let maxPixelSize: Int
 
     init(clip: Clip, maxPixelSize: Int) {
         clipID = clip.id
         // The original payload is immutable and repairing a file's image snapshot updates its date.
         revisedAt = clip.date
+        digest = (clip.snapshotBlob ?? clip.imageBlob)?.digest
         self.maxPixelSize = maxPixelSize
     }
 
     var cacheKey: NSString {
-        "\(clipID.uuidString)/\(revisedAt.timeIntervalSinceReferenceDate.bitPattern)/\(maxPixelSize)" as NSString
+        "\(clipID.uuidString)/\(digest?.hash ?? String(revisedAt.timeIntervalSinceReferenceDate.bitPattern))/\(maxPixelSize)" as NSString
     }
 }
 
@@ -86,13 +87,14 @@ private actor ThumbnailRenderer {
         return cache
     }()
 
-    func image(for key: ThumbnailKey, data: Data) -> CGImage? {
+    func image(for key: ThumbnailKey, clip: Clip) -> CGImage? {
         guard !Task.isCancelled else { return nil }
         let cacheKey = key.cacheKey
         if let cached = cache.object(forKey: cacheKey) { return cached.image }
+        guard let original = try? clip.readPreviewImage() else { return nil }
 
         let image = autoreleasepool {
-            Self.decode(data, maxPixelSize: key.maxPixelSize)
+            Self.decode(original.data, maxPixelSize: key.maxPixelSize)
         }
         cache.setObject(
             CachedThumbnail(image: image), forKey: cacheKey,

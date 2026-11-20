@@ -49,7 +49,7 @@ final class SyncEngine {
             connect(url)
             if stale { defaults.set(try Self.bookmark(for: url), forKey: Self.bookmarkKey) }
         } catch {
-            status = .error("无法打开同步文件夹。\(error.localizedDescription)")
+            status = .error(L("无法打开同步文件夹。%@", error.localizedDescription))
         }
     }
 
@@ -60,7 +60,7 @@ final class SyncEngine {
             defaults.set(data, forKey: Self.bookmarkKey)
             connect(url)
         } catch {
-            status = .error("无法保存同步文件夹。\(error.localizedDescription)")
+            status = .error(L("无法保存同步文件夹。%@", error.localizedDescription))
         }
     }
 
@@ -102,12 +102,12 @@ final class SyncEngine {
         do {
             try queue.sync {
                 var blobs: [SyncBlob: Data] = [:]
-                let local = SyncState(device: device, records: library.records(blobs: &blobs))
+                let local = try SyncState(device: device, records: library.records(blobs: &blobs))
                 let records = SyncMerge.merge([local], now: device.updatedAt, privateIDs: library.privateIDs)
                 try destination.write(records, blobs: blobs, device: device, force: true)
             }
         } catch {
-            status = .error("同步失败。\(error.localizedDescription)")
+            status = .error(L("同步失败。%@", error.localizedDescription))
         }
     }
 
@@ -169,7 +169,7 @@ final class SyncEngine {
     private func beginSync() {
         guard let folder else { return }
         guard store.canReadSyncLibrary else {
-            status = .error("无法读取本机收藏，暂时无法同步。")
+            status = .error(L("无法读取本机收藏，暂时无法同步。"))
             return
         }
 
@@ -213,7 +213,7 @@ final class SyncEngine {
                     connect(moved)
                     return
                 }
-                status = .error("同步失败。\(error.localizedDescription)")
+                status = .error(L("同步失败。%@", error.localizedDescription))
             }
             running = nil
             if needsRead, debounce == nil { beginSync() }

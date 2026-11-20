@@ -4,11 +4,11 @@ import SwiftUI
 extension DetectedContent {
     var label: String {
         switch self {
-        case .color: "颜色"
-        case let .code(language): language.map { "代码 · \($0.rawValue)" } ?? "代码"
-        case .oneTimeCode: "验证码"
-        case .email: "邮箱"
-        case .phone: "电话"
+        case .color: L("颜色")
+        case let .code(language): language.map { L("代码 · %@", $0.label) } ?? L("代码")
+        case .oneTimeCode: L("验证码")
+        case .email: L("邮箱")
+        case .phone: L("电话")
         }
     }
 
@@ -24,8 +24,8 @@ extension DetectedContent {
 
     var contactAction: String? {
         switch self {
-        case .email: "发邮件"
-        case .phone: "拨打"
+        case .email: L("发邮件")
+        case .phone: L("拨打")
         default: nil
         }
     }
@@ -127,7 +127,7 @@ struct DetectedContentView: View {
                             .textSelection(.enabled)
                         Spacer(minLength: 4)
                         Button("复制") { copy(value) }
-                            .accessibilityLabel("复制为 \(notation.rawValue)")
+                            .accessibilityLabel(L("复制为 %@", notation.rawValue))
                     }
                 }
             }

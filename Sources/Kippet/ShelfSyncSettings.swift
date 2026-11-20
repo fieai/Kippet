@@ -63,7 +63,7 @@ struct ShelfSyncSettings: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "选择"
+        panel.prompt = L("选择")
         let iCloud = URL.homeDirectory.appending(path: "Library/Mobile Documents/com~apple~CloudDocs")
         panel.directoryURL = sync.folder ?? iCloud
         panel.begin { response in
@@ -94,9 +94,9 @@ struct ShelfSyncStatus: View {
 
     private var label: String {
         switch status {
-        case .idle: "同步待命"
-        case .syncing: "正在同步"
-        case let .synced(date): "上次同步 \(date.formatted(date: .abbreviated, time: .shortened))"
+        case .idle: L("同步待命")
+        case .syncing: L("正在同步")
+        case let .synced(date): L("上次同步 %@", date.formatted(date: .abbreviated, time: .shortened))
         case let .error(message): message
         }
     }

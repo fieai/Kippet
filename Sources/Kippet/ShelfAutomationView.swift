@@ -42,7 +42,7 @@ struct ShelfAutomationView: View {
                 ForEach(Self.links, id: \.self) { link in
                     LabeledContent {
                         Button("复制") { copy(link) }
-                            .accessibilityLabel("复制 \(link)")
+                            .accessibilityLabel(L("复制 %@", link))
                     } label: {
                         Text(link).font(.system(.caption, design: .monospaced))
                     }

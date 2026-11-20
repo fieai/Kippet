@@ -4,7 +4,7 @@ import SwiftUI
 struct ShelfSearchField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isEditing: Bool
-    var placeholder = "搜索剪贴板"
+    var placeholder = L("搜索剪贴板")
     var focusOnInstall = false
     var onCommand: ((Selector) -> Bool)?
     var onInstall: (NSTextField) -> Void

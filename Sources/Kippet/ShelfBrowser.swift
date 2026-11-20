@@ -11,9 +11,9 @@ enum HistoryContentType: Hashable, CaseIterable {
     var label: String {
         switch self {
         case let .kind(kind): kind.label
-        case .color: "颜色"
-        case .code: "代码"
-        case .oneTimeCode: "验证码"
+        case .color: L("颜色")
+        case .code: L("代码")
+        case .oneTimeCode: L("验证码")
         }
     }
 }
@@ -112,8 +112,8 @@ final class ShelfBrowser {
     }
 
     func joined(_ clips: [Clip], separator: String) -> Clip? {
-        guard clips.count > 1, clips.allSatisfy({ $0.payload.supportsPlainText }) else { return nil }
-        let parts = clips.map(\.payload.previewText)
+        guard clips.count > 1, clips.allSatisfy({ $0.storedPayload.supportsPlainText }) else { return nil }
+        let parts = clips.map(\.storedPayload.previewText)
         let limit = 8 * 1_024 * 1_024
         var size = separator.utf8.count * (parts.count - 1)
         for part in parts {
@@ -130,7 +130,7 @@ final class ShelfBrowser {
         let visible = results
         guard visible.indices.contains(index) else { return nil }
         let clip = visible[index]
-        return keys.contains(.shift) && !clip.payload.supportsPlainText ? nil : clip
+        return keys.contains(.shift) && !clip.storedPayload.supportsPlainText ? nil : clip
     }
 
     func open() {

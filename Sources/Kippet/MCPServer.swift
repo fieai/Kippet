@@ -15,7 +15,7 @@ struct MCPServer {
                 return app.name == clip.sourceName
             }) else { return false }
             let detected: DetectedContent?
-            if case let .text(text, _, _) = clip.payload, text.utf8.count <= DetectionCache.maxTextBytes {
+            if case let .text(text, _, _) = clip.storedPayload, text.utf8.count <= DetectionCache.maxTextBytes {
                 detected = ContentDetector.detect(text, sourceBundleIdentifier: clip.sourceBundleIdentifier)
             } else {
                 detected = nil
@@ -63,12 +63,12 @@ struct MCPServer {
         case "tools/call":
             let access = access()
             if !access.enabled {
-                result = Self.toolError("Kippet 未开启 AI 访问，请在 设置 → 自动化 中打开")
+                result = Self.toolError(L("Kippet 未开启 AI 访问，请在 设置 → 自动化 中打开"))
             } else if let params = request["params"] as? [String: Any], let name = params["name"] as? String,
                       let tool = Tool(rawValue: name), let arguments = (params["arguments"] ?? [:]) as? [String: Any] {
                 result = call(tool, arguments: arguments, access: access)
             } else {
-                return Self.reply(id: id, error: -32602, message: "未知的 Kippet 工具或参数无效")
+                return Self.reply(id: id, error: -32602, message: L("未知的 Kippet 工具或参数无效"))
             }
         default:
             return Self.reply(id: id, error: -32601, message: "Method not found")
@@ -81,12 +81,12 @@ struct MCPServer {
         do {
             if tool == .addSnippet { return try addSnippet(arguments, allowed: access.snippetsEnabled) }
             let payload = try read(tool, arguments: arguments, access: access)
-            guard let json = Self.encode(payload) else { return Self.toolError("无法生成 Kippet 响应") }
+            guard let json = Self.encode(payload) else { return Self.toolError(L("无法生成 Kippet 响应")) }
             return Self.toolResult(json)
         } catch let error as ToolError {
             return Self.toolError(error.message)
         } catch {
-            return Self.toolError("无法读取 Kippet 历史")
+            return Self.toolError(L("无法读取 Kippet 历史"))
         }
     }
 
@@ -131,25 +131,25 @@ struct MCPServer {
     }
 
     private func addSnippet(_ arguments: [String: Any], allowed: Bool) throws -> [String: Any] {
-        guard allowed else { return Self.toolError("Kippet 未允许 AI 新建片段，请在 设置 → 自动化 中打开") }
+        guard allowed else { return Self.toolError(L("Kippet 未允许 AI 新建片段，请在 设置 → 自动化 中打开")) }
         let title = (arguments["title"] ?? "") as? String
         guard let title, let content = arguments["content"] as? String,
               ClipboardStore.isValidSnippet(title: title, content: content)
         else { throw ToolError.invalidArguments }
         let pinboardID = try arguments["pinboard_id"].map { _ in try Self.uuid("pinboard_id", in: arguments) }
         guard sendSnippet(Snippet(title: title, content: content, pinboardID: pinboardID)) else {
-            return Self.toolError("Kippet 未运行，请先打开 Kippet")
+            return Self.toolError(L("Kippet 未运行，请先打开 Kippet"))
         }
-        return Self.toolResult("已发送给 Kippet")
+        return Self.toolResult(L("已发送给 Kippet"))
     }
 
     private static func summary(_ clip: Clip, groups: [ClipGroup]) -> [String: Any] {
-        let preview = clip.payload.kind == .image ? clip.recognizedText ?? clip.payload.previewText
-            : clip.payload.previewText
+        let preview = clip.storedPayload.kind == .image ? clip.recognizedText ?? clip.storedPayload.previewText
+            : clip.storedPayload.previewText
         return [
             "id": clip.id.uuidString,
             "date": clip.date.ISO8601Format(),
-            "kind": clip.payload.kind.rawValue,
+            "kind": clip.storedPayload.kind.rawValue,
             "source_app": clip.source?.name as Any? ?? NSNull(),
             "title": clip.title as Any? ?? NSNull(),
             "preview": String(preview.prefix(500)),
@@ -164,7 +164,7 @@ struct MCPServer {
         result["note"] = clip.title as Any? ?? NSNull()
         result["ocr_text"] = clip.recognizedText as Any? ?? NSNull()
         result["truncated"] = false
-        switch clip.payload {
+        switch clip.storedPayload {
         case let .text(text, _, _):
             let truncated = text.utf8.count > 100_000
             result["text"] = truncated ? textPrefix(text, bytes: 100_000) : text
@@ -176,7 +176,13 @@ struct MCPServer {
         case .image:
             break
         }
-        if let data = clip.ocrImageData {
+        if clip.hasPreviewImage, let reference = clip.snapshotBlob ?? clip.imageBlob {
+            var size = ["bytes": reference.byteCount]
+            size["width"] = reference.width
+            size["height"] = reference.height
+            result["image_size"] = size
+        } else if clip.hasPreviewImage, let image = try? clip.readPreviewImage() {
+            let data = image.data
             var size = ["bytes": data.count]
             if let source = CGImageSourceCreateWithData(data as CFData, nil),
                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -293,9 +299,9 @@ struct MCPServer {
 
         var message: String {
             switch self {
-            case .invalidArguments: "工具参数无效"
-            case .missingClip: "找不到此卡片"
-            case .missingPinboard: "找不到此钉板"
+            case .invalidArguments: L("工具参数无效")
+            case .missingClip: L("找不到此卡片")
+            case .missingPinboard: L("找不到此钉板")
             }
         }
     }

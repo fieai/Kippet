@@ -14,22 +14,22 @@ enum PasteTransform: String, CaseIterable, Identifiable, Codable, Sendable {
 
     var title: String {
         switch self {
-        case .trimWhitespace: "去除首尾空白"
-        case .collapseWhitespace: "合并多余空白"
-        case .removeLineBreaks: "合并为一行"
-        case .removeBlankLines: "删除空行"
-        case .uppercase: "全部大写"
-        case .lowercase: "全部小写"
-        case .capitalized: "单词首字母大写"
-        case .sortLines: "按行排序"
-        case .dedupeLines: "删除重复行"
-        case .jsonPretty: "JSON 格式化"
-        case .jsonMinify: "JSON 压缩"
-        case .cleanURL: "清除链接追踪参数"
-        case .urlEncode: "URL 编码"
-        case .urlDecode: "URL 解码"
-        case .base64Encode: "Base64 编码"
-        case .base64Decode: "Base64 解码"
+        case .trimWhitespace: L("去除首尾空白")
+        case .collapseWhitespace: L("合并多余空白")
+        case .removeLineBreaks: L("合并为一行")
+        case .removeBlankLines: L("删除空行")
+        case .uppercase: L("全部大写")
+        case .lowercase: L("全部小写")
+        case .capitalized: L("单词首字母大写")
+        case .sortLines: L("按行排序")
+        case .dedupeLines: L("删除重复行")
+        case .jsonPretty: L("JSON 格式化")
+        case .jsonMinify: L("JSON 压缩")
+        case .cleanURL: L("清除链接追踪参数")
+        case .urlEncode: L("URL 编码")
+        case .urlDecode: L("URL 解码")
+        case .base64Encode: L("Base64 编码")
+        case .base64Decode: L("Base64 解码")
         }
     }
 

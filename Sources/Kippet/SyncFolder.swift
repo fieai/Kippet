@@ -38,7 +38,7 @@ struct SyncFolder: Sendable {
             return state
         }
         var blobs: [SyncBlob: Data] = [:]
-        let ownState = SyncState(device: device, records: local.records(blobs: &blobs))
+        let ownState = try SyncState(device: device, records: local.records(blobs: &blobs))
         let merged = SyncMerge.merge(states + [ownState], now: device.updatedAt, privateIDs: local.privateIDs)
         let references = Set(merged.clips.flatMap(\.payload.blobs))
         let blobFolders = ([own] + peerFolders).map { $0.appending(path: "blobs", directoryHint: .isDirectory) }

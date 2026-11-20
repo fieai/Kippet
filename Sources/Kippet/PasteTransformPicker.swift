@@ -29,7 +29,7 @@ struct PasteTransformPicker: View {
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 ShelfSearchField(
-                    text: $query, isEditing: $isFiltering, placeholder: "筛选处理方式",
+                    text: $query, isEditing: $isFiltering, placeholder: L("筛选处理方式"),
                     focusOnInstall: true, onCommand: handleCommand, onInstall: { _ in }
                 )
                 .frame(height: 22)

@@ -62,7 +62,7 @@ struct SyncClip: Codable, Equatable, Identifiable, Sendable {
         }
 
         let available: SyncPayload
-        switch clip.payload {
+        switch clip.storedPayload {
         case let .text(text, rtf, html):
             available = .text(text, rtf: rtf.map(store), html: html.map(store))
         case let .link(link):
@@ -102,8 +102,10 @@ struct SyncClip: Codable, Equatable, Identifiable, Sendable {
                 snapshot = ClipImage(data: data, format: image.format)
             }
         }
-        let keepsRecognition = existing?.payload == content && existing?.imageSnapshot == snapshot
-        return Clip(
+        let keepsRecognition = existing.map {
+            (try? $0.readPayload()) == content && (try? $0.readImageSnapshot()) == snapshot
+        } ?? false
+        var clip = Clip(
             id: id, payload: content, date: date, sourceName: existing?.sourceName, isFavorite: isFavorite,
             imageSnapshot: snapshot, groupIDs: groupIDs.isEmpty ? nil : Set(groupIDs),
             sourceBundleIdentifier: existing?.sourceBundleIdentifier, title: title,
@@ -112,6 +114,15 @@ struct SyncClip: Codable, Equatable, Identifiable, Sendable {
             modifiedAt: modifiedAt, syncOnly: existing == nil ? true : existing?.syncOnly,
             pendingSyncPayload: payload.blobs.allSatisfy { blobs[$0] != nil } ? nil : payload
         )
+        if keepsRecognition, let existing {
+            clip.storedPayload = existing.storedPayload
+            clip.imageSnapshot = existing.imageSnapshot
+            clip.imageBlob = existing.imageBlob
+            clip.snapshotBlob = existing.snapshotBlob
+            clip.blobSource = existing.blobSource
+            clip.contentHash = existing.contentHash
+        }
+        return clip
     }
 }
 
@@ -161,9 +172,9 @@ struct SyncLibrary: Sendable {
     let tombstones: [SyncTombstone]
     let privateIDs: Set<UUID>
 
-    func records(blobs: inout [SyncBlob: Data]) -> SyncRecords {
-        SyncRecords(
-            clips: clips.compactMap { SyncClip($0, blobs: &blobs) },
+    func records(blobs: inout [SyncBlob: Data]) throws -> SyncRecords {
+        try SyncRecords(
+            clips: clips.compactMap { clip in SyncClip(try clip.materializedImages(), blobs: &blobs) },
             groups: groups.enumerated().map { SyncGroup($0.element, position: $0.offset) },
             tombstones: tombstones
         )

@@ -1,7 +1,5 @@
 import AppKit
-import ImageIO
 import Observation
-import os
 import UniformTypeIdentifiers
 
 @MainActor
@@ -12,20 +10,23 @@ final class ClipboardStore {
 
         var message: String? {
             switch self {
-            case .written: "已复制"
-            case .imageUnavailable: "无法读取原图片。请右键卡片，选择「选取图片文件…」。"
-            case .imagePendingSync: "图片尚未同步"
-            case .clipboardChanged: "剪贴板已变化，本次操作已取消。"
-            case .failed: "复制失败"
+            case .written: L("已复制")
+            case .imageUnavailable: L("无法读取原图片。请右键卡片，选择「选取图片文件…」。")
+            case .imagePendingSync: L("图片尚未同步")
+            case .clipboardChanged: L("剪贴板已变化，本次操作已取消。")
+            case .failed: L("复制失败")
             case .cancelled: nil
             }
         }
     }
 
-    private(set) var clips: [Clip] = [] {
-        didSet { lastFilter = nil }
+    var clips: [Clip] = [] {
+        didSet {
+            lastFilter = nil
+            searchToken = nil
+        }
     }
-    private(set) var groups: [ClipGroup] = [] {
+    var groups: [ClipGroup] = [] {
         didSet { lastFilter = nil }
     }
     private(set) var isPaused: Bool
@@ -36,36 +37,39 @@ final class ClipboardStore {
     private var board: NSPasteboard { pasteboard ?? .general }
     private let preferences: UserDefaults
     let shelfPreferences: ShelfPreferences
+    let archive: ClipArchive
     private let writer: ArchiveWriter
-    private let imageQueue = DispatchQueue(label: "Kippet.imagePreparation", qos: .userInitiated)
-    private let preparedPNGs: NSCache<NSUUID, PreparedPNG> = {
+    let imageQueue = DispatchQueue(label: "Kippet.imagePreparation", qos: .userInitiated)
+    let preparedPNGs: NSCache<NSUUID, PreparedPNG> = {
         let cache = NSCache<NSUUID, PreparedPNG>()
         cache.totalCostLimit = 24 * 1_024 * 1_024
         cache.countLimit = 24
         return cache
     }()
-    @ObservationIgnored private var pngTasks: [Clip.ID: Task<Data?, Never>] = [:]
-    @ObservationIgnored private var ocrJobs: [Clip.ID: OCRJob] = [:]
-    @ObservationIgnored private var pendingOCR: [Clip.ID] = []
-    @ObservationIgnored private var queuedOCR: Set<Clip.ID> = []
-    @ObservationIgnored private var ocrBackfill: Task<Void, Never>?
+    @ObservationIgnored var pngTasks: [Clip.ID: Task<Data?, Never>] = [:]
+    @ObservationIgnored var ocrJobs: [Clip.ID: OCRJob] = [:]
+    @ObservationIgnored var pendingOCR: [Clip.ID] = []
+    @ObservationIgnored var queuedOCR: Set<Clip.ID> = []
+    @ObservationIgnored var ocrBackfill: Task<Void, Never>?
     @ObservationIgnored private var expiryTimer: Task<Void, Never>?
     @ObservationIgnored private var pendingOrderRepair: UUID?
-    @ObservationIgnored private var lastFilter: (filter: HistoryFilter, results: [Clip])?
+    @ObservationIgnored var lastFilter: (filter: HistoryFilter, results: [Clip])?
+    @ObservationIgnored var searchToken: String?
     let detectionCache = DetectionCache()
     private var lastChange: Int
     private var archiveReadable = true
     private var historyLimit = 1_000
     private var retentionDays = 0
     @ObservationIgnored var onSavedStateChange: (() -> Void)?
-    @ObservationIgnored private(set) var syncRevision = 0
-    @ObservationIgnored private var syncTombstones: [SyncTombstone] = []
-    @ObservationIgnored private var syncTombstonesChanged = false
+    @ObservationIgnored var onCapturePauseChange: (() -> Void)?
+    @ObservationIgnored var syncRevision = 0
+    @ObservationIgnored var syncTombstones: [SyncTombstone] = []
+    @ObservationIgnored var syncTombstonesChanged = false
     var canReadSyncLibrary: Bool { archiveReadable }
 
-    nonisolated private static let maxPayloadSize = 8 * 1_024 * 1_024
+    nonisolated static let maxPayloadSize = 8 * 1_024 * 1_024
     private static let historySize = 64 * 1_024 * 1_024
-    private static let favoriteSize = 32 * 1_024 * 1_024
+    static let favoriteSize = 32 * 1_024 * 1_024
     private static let excludedTypes: Set<String> = [
         "org.nspasteboard.ConcealedType",
         "org.nspasteboard.TransientType",
@@ -89,16 +93,18 @@ final class ClipboardStore {
         self.shelfPreferences = ShelfPreferences(defaults: preferences)
         self.lastChange = board?.changeCount ?? 0
         self.isPaused = preferences.bool(forKey: "capturePaused")
+        self.archive = archive
         self.writer = ArchiveWriter(archive: archive)
 
         do {
             let saved = try archive.loadLibrary()
             clips = saved.clips
+            searchToken = saved.searchToken
             groups = saved.groups
             syncTombstones = saved.tombstones
         } catch {
             archiveReadable = false
-            storageError = "无法读取历史文件，本次运行的记录仅保存在内存中。"
+            storageError = L("无法读取历史文件，本次运行的记录仅保存在内存中。")
         }
         sweepExpired()
         expiryTimer = Task { [weak self] in
@@ -113,8 +119,7 @@ final class ClipboardStore {
     deinit { expiryTimer?.cancel() }
 
     var pendingChange: Int? {
-        let change = board.changeCount
-        return !isPaused && change != lastChange ? change : nil
+        ShelfCapturePolicy.changeToPoll(current: board.changeCount, last: lastChange, isPaused: isPaused)
     }
 
     @discardableResult
@@ -122,9 +127,9 @@ final class ClipboardStore {
         sourceName: String? = nil, sourceBundleIdentifier: String? = nil,
         expectedChange: Int? = nil, captureAllowed: Bool = true
     ) -> Bool {
-        let change = board.changeCount
-        guard !isPaused, lastChange != change,
-              expectedChange == nil || expectedChange == change else { return false }
+        guard let change = ShelfCapturePolicy.changeToPoll(
+            current: board.changeCount, last: lastChange, isPaused: isPaused, expected: expectedChange
+        ) else { return false }
         lastChange = change
         guard captureAllowed else { return false }
 
@@ -149,9 +154,24 @@ final class ClipboardStore {
             )
         }
         guard board.changeCount == change else { return false }
-        let duplicate = clips.firstIndex {
-            $0.payload == payload && $0.imageSnapshot == clip.imageSnapshot
+        return recordCapture(clip)
+    }
+
+    @discardableResult
+    func recordCapture(_ captured: Clip) -> Bool {
+        var clip = archive.externalizingImages(captured)
+        clip.contentHash = clip.computeContentHash()
+        var hashed: [Clip] = []
+        let duplicate = clips.indices.first { index in
+            guard clips[index].storedPayload.kind == clip.storedPayload.kind else { return false }
+            if clips[index].contentHash == nil {
+                clips[index].contentHash = clips[index].computeContentHash()
+                hashed.append(clips[index])
+            }
+            return clips[index].matchesCapture(clip)
         }
+        let sourceName = clip.sourceName
+        let sourceBundleIdentifier = clip.sourceBundleIdentifier
         if let duplicate {
             let captureDate = clip.date
             clip = clips[duplicate]
@@ -161,14 +181,17 @@ final class ClipboardStore {
             }
             clip.sourceBundleIdentifier = sourceBundleIdentifier
         }
-        guard applyRules(to: &clip) else { return false }
+        guard applyRules(to: &clip) else {
+            if !hashed.isEmpty { save(upserting: hashed) }
+            return false
+        }
         let previous = duplicate.map { clips[$0] }
         clip.syncOnly = nil
         recordSyncChange(to: &clip, replacing: previous)
         if let duplicate { clips.remove(at: duplicate) }
         clips.insert(clip, at: 0)
-        save(upserting: [clip], removing: trimHistory())
-        prewarmImage(clip)
+        save(upserting: hashed.filter { $0.id != clip.id } + [clip], removing: trimHistory())
+        prewarmImage(captured, for: clip.id)
         queueOCR(clip)
         return true
     }
@@ -200,8 +223,10 @@ final class ClipboardStore {
         var rule = shelfPreferences.rules[index]
         if enabled, id == ClipRule.colorPresetID, let groupID = rule.action.groupID,
            !groups.contains(where: { $0.id == groupID }) {
-            let board = groups.first { $0.name.localizedCaseInsensitiveCompare("颜色") == .orderedSame }
-                ?? createGroup(name: "颜色")
+            let name = L(ClipRule.colorBoardName)
+            let board = groups.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+                ?? groups.first { $0.name.localizedCaseInsensitiveCompare(ClipRule.colorBoardName) == .orderedSame }
+                ?? createGroup(name: name)
             if let board { rule.action = .addToGroup(board.id) }
         }
         rule.isEnabled = enabled
@@ -212,6 +237,7 @@ final class ClipboardStore {
         lastChange = board.changeCount
         isPaused.toggle()
         preferences.set(isPaused, forKey: "capturePaused")
+        onCapturePauseChange?()
     }
 
     func toggleFavorite(_ id: Clip.ID) -> Bool {
@@ -236,8 +262,10 @@ final class ClipboardStore {
     }
 
     @discardableResult
-    func remove(_ id: Clip.ID) -> RemovedClip? {
+    func remove(_ id: Clip.ID, keepingForUndo: Bool = true) -> RemovedClip? {
         guard let index = clips.firstIndex(where: { $0.id == id }) else { return nil }
+        let original = clips[index]
+        let undoClip = keepingForUndo ? (try? original.materializedImages()) : nil
         var positionsInBoards: [ClipGroup.ID: Int] = [:]
         for board in groups.indices where clips[index].groupIDs?.contains(groups[board].id) == true {
             if let position = groups[board].cardOrder?.firstIndex(of: id) {
@@ -247,7 +275,7 @@ final class ClipboardStore {
             }
         }
         let deletion = RemovedClip(
-            clip: clips[index], index: index,
+            clip: undoClip ?? original, index: index,
             newerID: index > 0 ? clips[index - 1].id : nil,
             olderID: index + 1 < clips.count ? clips[index + 1].id : nil,
             positionsInBoards: positionsInBoards
@@ -265,11 +293,11 @@ final class ClipboardStore {
             if !clip.isSaved, let expiry = clip.expiresAt, expiry <= now { return clip.id }
             return nil
         }
-        for id in expired { remove(id) }
+        for id in expired { remove(id, keepingForUndo: false) }
     }
 
     func restore(_ deletion: RemovedClip) -> Bool {
-        var clip = deletion.clip
+        var clip = archive.externalizingImages(deletion.clip)
         guard !clips.contains(where: { $0.id == clip.id }) else { return false }
         if let membership = clip.groupIDs, !membership.isEmpty {
             let remaining = membership.intersection(groups.map(\.id))
@@ -318,129 +346,6 @@ final class ClipboardStore {
         if !expired.isEmpty { save(removing: expired) }
     }
 
-    var sourceNames: [String] {
-        Set(clips.compactMap(\.sourceName)).sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
-        }
-    }
-
-    var sources: [ClipSource] {
-        var distinct: [String: ClipSource] = [:]
-        for clip in clips {
-            guard let source = clip.source, distinct[source.id] == nil else { continue }
-            distinct[source.id] = source
-        }
-        let namesWithBundleIDs = Set(distinct.values.compactMap { source in
-            source.bundleIdentifier == nil ? nil : source.name
-        })
-        return distinct.values.filter {
-            $0.bundleIdentifier != nil || !namesWithBundleIDs.contains($0.name)
-        }.sorted {
-            let order = $0.name.localizedStandardCompare($1.name)
-            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
-        }
-    }
-
-    func filtered(
-        query: String, kind: ClipKind?, favoritesOnly: Bool, sourceName: String? = nil,
-        groupID: UUID? = nil, sourceBundleIdentifier: String? = nil
-    ) -> [Clip] {
-        filtered(
-            query: query, contentType: kind.map(HistoryContentType.kind), favoritesOnly: favoritesOnly,
-            sourceName: sourceName, groupID: groupID, sourceBundleIdentifier: sourceBundleIdentifier
-        )
-    }
-
-    func filtered(
-        query: String, contentType: HistoryContentType?, favoritesOnly: Bool, sourceName: String? = nil,
-        groupID: UUID? = nil, sourceBundleIdentifier: String? = nil
-    ) -> [Clip] {
-        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if search.isEmpty, contentType == nil, !favoritesOnly, sourceName == nil,
-           groupID == nil, sourceBundleIdentifier == nil { return clips }
-
-        let filter = HistoryFilter(
-            search: search, contentType: contentType, favoritesOnly: favoritesOnly, sourceName: sourceName,
-            groupID: groupID, sourceBundleIdentifier: sourceBundleIdentifier,
-            locale: search.isEmpty ? nil : .current
-        )
-        let snapshot = clips
-        let group = groupID.flatMap { id in groups.first { $0.id == id } }
-        if let lastFilter, lastFilter.filter == filter { return lastFilter.results }
-
-        let workers = search.isEmpty ? 1 : min(Self.searchWorkerLimit, max(1, snapshot.count / 625))
-        let matches: [Clip]
-        if workers == 1 {
-            matches = snapshot.filter(filter.includes)
-        } else {
-            // Workers search immutable slices. Gathering by slice keeps the original history order.
-            let batches = OSAllocatedUnfairLock(initialState: [[Clip]](repeating: [], count: workers))
-            DispatchQueue.concurrentPerform(iterations: workers) { batch in
-                let start = batch * snapshot.count / workers
-                let end = (batch + 1) * snapshot.count / workers
-                let matches = snapshot[start..<end].filter(filter.includes)
-                batches.withLock { $0[batch] = matches }
-            }
-            matches = batches.withLock { $0.flatMap { $0 } }
-        }
-        let filtered = filter.matchingDetectedType(in: matches, cache: detectionCache)
-        let results = group?.ordered(filtered) ?? filtered
-        lastFilter = (filter, results)
-        return results
-    }
-
-    private static let searchWorkerLimit = min(8, ProcessInfo.processInfo.activeProcessorCount)
-
-    func createGroup(name: String, color: ClipGroupColor? = nil) -> ClipGroup? {
-        guard let name = availableGroupName(name) else { return nil }
-        let position = groups.last.map { $0.syncPosition ?? groups.count - 1 } ?? -1
-        let group = ClipGroup(id: UUID(), name: name, color: color, modifiedAt: .now,
-                              syncPosition: position < Int.max ? position + 1 : position)
-        groups.append(group)
-        markSyncChanged()
-        save(groupsChanged: true)
-        return group
-    }
-
-    func renameGroup(_ id: UUID, name: String, color: ClipGroupColor? = nil) -> Bool {
-        guard let index = groups.firstIndex(where: { $0.id == id }) else { return false }
-        let input = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let name = input == groups[index].name ? input : availableGroupName(input, excluding: id)
-        else { return false }
-        guard groups[index].name != name || (color != nil && groups[index].color != color) else { return true }
-        if groups[index].name != name {
-            groups[index].name = name
-            groups[index].syncName = nil
-        }
-        if let color { groups[index].color = color }
-        touchGroup(at: index)
-        save(groupsChanged: true)
-        return true
-    }
-
-    func moveGroup(_ id: ClipGroup.ID, onto destination: ClipGroup.ID) {
-        guard id != destination, let from = groups.firstIndex(where: { $0.id == id }),
-              let to = groups.firstIndex(where: { $0.id == destination }) else { return }
-        let group = groups.remove(at: from)
-        groups.insert(group, at: to)
-        for index in groups.indices where groups[index].syncPosition != index {
-            groups[index].syncPosition = index
-            touchGroup(at: index)
-        }
-        save(groupsChanged: true)
-    }
-
-    func moveCard(_ id: Clip.ID, onto destination: Clip.ID, in groupID: ClipGroup.ID) -> Bool {
-        guard id != destination, let index = groups.firstIndex(where: { $0.id == groupID }) else { return false }
-        var order = filtered(query: "", kind: nil, favoritesOnly: true, groupID: groupID).map(\.id)
-        guard let from = order.firstIndex(of: id), let to = order.firstIndex(of: destination) else { return false }
-        order.remove(at: from)
-        order.insert(id, at: to)
-        groups[index].cardOrder = SyncMerge.movingCards(order, in: groups[index].cardOrder)
-        touchGroup(at: index)
-        save(groupsChanged: true)
-        return true
-    }
 
     nonisolated static func isValidSnippet(title: String, content: String) -> Bool {
         title.trimmingCharacters(in: .whitespacesAndNewlines).count <= 120 &&
@@ -459,6 +364,7 @@ final class ClipboardStore {
             title: title.isEmpty ? nil : title
         )
         guard fitsFavorites(clip) else { return nil }
+        clip.contentHash = clip.computeContentHash()
         recordSyncChange(to: &clip, replacing: nil)
         clips.insert(clip, at: 0)
         save(upserting: [clip])
@@ -482,10 +388,11 @@ final class ClipboardStore {
     func editText(_ id: Clip.ID, text: String) -> Clip? {
         guard !text.isEmpty, text.utf8.count <= Self.maxPayloadSize,
               let index = clips.firstIndex(where: { $0.id == id }),
-              case let .text(previous, _, _) = clips[index].payload else { return nil }
+              case let .text(previous, _, _) = clips[index].storedPayload else { return nil }
         var clip = clips[index]
         guard previous != text else { return clip }
         clip.payload = .text(text, rtf: nil, html: nil)
+        clip.contentHash = clip.computeContentHash()
         clip.pendingSyncPayload = nil
         guard !clip.isSaved || fitsFavorites(clip) else { return nil }
         recordSyncChange(to: &clip, replacing: clips[index])
@@ -502,87 +409,11 @@ final class ClipboardStore {
         return clip
     }
 
-    func removeGroup(_ id: UUID) {
-        guard let index = groups.firstIndex(where: { $0.id == id }) else { return }
-        let removed = groups.remove(at: index)
-        recordSyncDeletion(id: id, kind: .group, after: removed.modifiedAt)
-        var changed: [Clip] = []
-        for index in clips.indices where clips[index].groupIDs?.contains(id) == true {
-            let original = clips[index]
-            var clip = original
-            clip.groupIDs?.remove(id)
-            if clip.groupIDs?.isEmpty == true { clip.groupIDs = nil }
-            if !clip.isSaved { clip.isFavorite = true }
-            recordSyncChange(to: &clip, replacing: original)
-            clips[index] = clip
-            changed.append(clip)
-        }
-        save(upserting: changed, groupsChanged: true)
-    }
-
-    func toggleGroup(_ groupID: UUID, for clipID: Clip.ID) -> Bool {
-        guard let board = groups.firstIndex(where: { $0.id == groupID }),
-              let index = clips.firstIndex(where: { $0.id == clipID })
-        else { return false }
-        var clip = clips[index]
-        var membership = clip.groupIDs ?? []
-        guard membership.remove(groupID) != nil else { return addCards([clipID], to: groupID) }
-        if membership.isEmpty { clip.isFavorite = true }
-        clip.groupIDs = membership.isEmpty ? nil : membership
-        recordSyncChange(to: &clip, replacing: clips[index])
-        clips[index] = clip
-        let position = groups[board].cardOrder?.firstIndex(of: clipID)
-        if let position {
-            groups[board].cardOrder?.remove(at: position)
-            touchGroup(at: board)
-        }
-        save(upserting: [clip], groupsChanged: position != nil)
-        return true
-    }
-
-    func addCards(_ ids: Set<Clip.ID>, to groupID: ClipGroup.ID) -> Bool {
-        guard !ids.isEmpty, groups.contains(where: { $0.id == groupID }) else { return false }
-        let selected = clips.indices.filter { ids.contains(clips[$0].id) }
-        guard selected.count == ids.count else { return false }
-        let additions = selected.filter { clips[$0].groupIDs?.contains(groupID) != true }
-        let extra = additions.reduce(0) { $0 + (clips[$1].isSaved ? 0 : clips[$1].size) }
-        guard extra == 0 || savedSize() + extra <= Self.favoriteSize else { return false }
-        guard !additions.isEmpty else { return true }
-        var updated = clips
-        let changed = additions.map { index in
-            var clip = updated[index]
-            clip.groupIDs = (clip.groupIDs ?? []).union([groupID])
-            clip.cancelExpiryIfSaved()
-            recordSyncChange(to: &clip, replacing: updated[index])
-            updated[index] = clip
-            return clip
-        }
-        clips = updated
-        save(upserting: changed)
-        return true
-    }
-
-    private func availableGroupName(_ input: String, excluding id: UUID? = nil) -> String? {
-        let name = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= 40,
-              !groups.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame })
-        else { return nil }
-        return name
-    }
-
-    private func fitsFavorites(_ clip: Clip) -> Bool {
-        savedSize(excluding: clip.id) + clip.size <= Self.favoriteSize
-    }
-
-    private func savedSize(excluding id: Clip.ID? = nil) -> Int {
-        clips.lazy.filter { $0.isSaved && $0.id != id }.reduce(0) { $0 + $1.size }
-    }
-
     func transformed(_ clip: Clip, with transform: PasteTransform) -> Clip? {
-        guard clip.payload.supportsPlainText, let result = transform.apply(to: clip.payload.previewText)
+        guard clip.storedPayload.supportsPlainText, let result = transform.apply(to: clip.storedPayload.previewText)
         else { return nil }
         let payload: ClipPayload
-        if clip.payload.kind == .link, let link = Self.webLink(result) {
+        if clip.storedPayload.kind == .link, let link = Self.webLink(result) {
             payload = .link(link)
         } else {
             payload = .text(result, rtf: nil, html: nil)
@@ -591,7 +422,7 @@ final class ClipboardStore {
     }
 
     func markdown(_ clip: Clip) -> Clip? {
-        guard case let .text(text, rtf, html) = clip.payload else { return nil }
+        guard case let .text(text, rtf, html) = clip.storedPayload else { return nil }
         return Clip(
             id: UUID(), payload: .text(MarkdownExport.markdown(text, rtf: rtf, html: html), rtf: nil, html: nil),
             date: .now
@@ -599,28 +430,18 @@ final class ClipboardStore {
     }
 
     func htmlSource(_ clip: Clip) -> Clip? {
-        guard case let .text(_, rtf, html) = clip.payload,
+        guard case let .text(_, rtf, html) = clip.storedPayload,
               let source = MarkdownExport.htmlSource(rtf: rtf, html: html) else { return nil }
         return Clip(id: UUID(), payload: .text(source, rtf: nil, html: nil), date: .now)
     }
 
     func copy(_ clip: Clip, plainText: Bool = false, asFile: Bool = false) async -> CopyResult {
         guard !Task.isCancelled else { return .cancelled }
-        if clip.hasPendingSyncImage && (!asFile || clip.payload.kind != .files) { return .imagePendingSync }
+        if clip.hasPendingSyncImage && (!asFile || clip.storedPayload.kind != .files) { return .imagePendingSync }
         let start = board.changeCount
-        let payload: ClipPayload
-        if !asFile, let url = clip.payload.singleImageFile {
-            if let image = clip.imageSnapshot {
-                payload = image.payload
-            } else {
-                let image = await processImage { Self.readImageFile(url) }
-                guard !Task.isCancelled else { return .cancelled }
-                guard let image else { return .imageUnavailable }
-                payload = image.payload
-            }
-        } else {
-            payload = clip.payload
-        }
+        let resolved = await pastePayload(for: clip, asFile: asFile)
+        guard !Task.isCancelled else { return .cancelled }
+        guard let payload = resolved else { return .imageUnavailable }
         let png: Data?
         if case let .image(data, format) = payload, format != UTType.png.identifier {
             png = await preparedPNG(for: clip.id, data: data)
@@ -659,166 +480,25 @@ final class ClipboardStore {
         return didWrite ? .written(change) : .failed
     }
 
+    func pastePayload(for clip: Clip, asFile: Bool = false) async -> ClipPayload? {
+        if !asFile, let url = clip.storedPayload.singleImageFile {
+            return await processImage {
+                let image = clip.hasImageSnapshot ? (try? clip.readImageSnapshot()) : Self.readImageFile(url)
+                return image?.payload
+            }
+        }
+        if clip.imageBlob != nil {
+            return await processImage { try? clip.readPayload() }
+        }
+        return clip.storedPayload
+    }
+
     func isCurrentPasteboardChange(_ change: Int) -> Bool {
         board.changeCount == change
     }
 
     func flush() {
         writer.flush()
-    }
-
-    func attachImage(from url: URL, to id: Clip.ID) async -> Clip? {
-        let image = await processImage { Self.readImageFile(url) }
-        guard let index = clips.firstIndex(where: { $0.id == id }),
-              clips[index].payload.singleImageFile != nil, let image, !Task.isCancelled
-        else { return nil }
-        var clip = clips[index]
-        if clip.imageSnapshot != image {
-            clip.recognizedText = nil
-            clip.barcodePayloads = nil
-        }
-        clip.imageSnapshot = image
-        clip.pendingSyncPayload = nil
-        guard clip.size <= Self.maxPayloadSize else { return nil }
-        guard !clip.isSaved || fitsFavorites(clip) else { return nil }
-        clip.date = .now
-        recordSyncChange(to: &clip, replacing: clips[index])
-        clips.remove(at: index)
-        clips.insert(clip, at: 0)
-        save(upserting: [clip], removing: trimHistory())
-        queueOCR(clip)
-        return clip
-    }
-
-    func prewarmOCR() {
-        // Pop from the end so both the newest history and fresh captures are processed first.
-        for clip in clips.reversed() where needsImageRecognition(clip) {
-            if queuedOCR.insert(clip.id).inserted { pendingOCR.append(clip.id) }
-        }
-        startOCRBackfill()
-    }
-
-    func recognizeText(_ id: Clip.ID) async -> String? {
-        if let text = clips.first(where: { $0.id == id })?.recognizedText { return text }
-        return await recognitionTask(for: id)?.value
-    }
-
-    private func recognitionTask(for id: Clip.ID) -> Task<String?, Never>? {
-        guard let clip = clips.first(where: { $0.id == id }), let image = clip.ocrImageData else { return nil }
-        let needsText = clip.recognizedText == nil
-        let needsBarcodes = clip.barcodePayloads == nil
-        guard needsText || needsBarcodes else { return nil }
-        if let existing = ocrJobs[id], existing.data == image { return existing.task }
-
-        let token = UUID()
-        let job = Task(priority: .utility) { [weak self] () -> String? in
-            let result = await ClipOCR.recognize(image, text: needsText, barcodes: needsBarcodes)
-            guard let self, ocrJobs[id]?.token == token else { return nil }
-            ocrJobs.removeValue(forKey: id)
-            guard result.text != nil || result.barcodePayloads != nil,
-                  let index = clips.firstIndex(where: { $0.id == id }),
-                  clips[index].ocrImageData == image else { return nil }
-            var updated = clips[index]
-            updated.recognizedText = result.text ?? updated.recognizedText
-            updated.barcodePayloads = result.barcodePayloads ?? updated.barcodePayloads
-            clips[index] = updated
-            save(upserting: [updated])
-            return updated.recognizedText
-        }
-        ocrJobs[id] = OCRJob(data: image, token: token, task: job)
-        return job
-    }
-
-    private func queueOCR(_ clip: Clip) {
-        guard needsImageRecognition(clip), queuedOCR.insert(clip.id).inserted else { return }
-        pendingOCR.append(clip.id)
-        startOCRBackfill()
-    }
-
-    private func needsImageRecognition(_ clip: Clip) -> Bool {
-        (clip.recognizedText == nil || clip.barcodePayloads == nil) && clip.ocrImageData != nil
-    }
-
-    private func startOCRBackfill() {
-        guard ocrBackfill == nil, !pendingOCR.isEmpty else { return }
-        ocrBackfill = Task(priority: .utility) { [weak self] in
-            while !Task.isCancelled, let id = self?.pendingOCR.popLast() {
-                self?.queuedOCR.remove(id)
-                let task = self?.recognitionTask(for: id)
-                _ = await task?.value
-            }
-            self?.ocrBackfill = nil
-        }
-    }
-
-    func prewarmImage(_ clip: Clip) {
-        guard case let .image(data, format) = clip.previewPayload, format != UTType.png.identifier else { return }
-        Task(priority: .utility) { [weak self] in
-            guard let self, self.pngTasks.isEmpty, !Task.isCancelled else { return }
-            _ = await self.preparedPNG(for: clip.id, data: data)
-        }
-    }
-
-    private func preparedPNG(for id: Clip.ID, data: Data) async -> Data? {
-        let key = id as NSUUID
-        if let cached = preparedPNGs.object(forKey: key) { return cached.data }
-        if let task = pngTasks[id] { return await task.value }
-        // A card's non-PNG bytes are immutable. A replacement file is saved as PNG.
-        let task = Task {
-            await processImage { Self.pngImage(from: data) }
-        }
-        pngTasks[id] = task
-        let png = await task.value
-        pngTasks.removeValue(forKey: id)
-        preparedPNGs.setObject(PreparedPNG(data: png), forKey: key, cost: png?.count ?? 1)
-        return png
-    }
-
-    private nonisolated func processImage<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            imageQueue.async { continuation.resume(returning: work()) }
-        }
-    }
-
-    private nonisolated static func readImageFile(_ url: URL) -> ClipImage? {
-        guard url.isFileURL,
-              let metadata = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-              metadata.isRegularFile == true, let size = metadata.fileSize, (1...maxPayloadSize).contains(size),
-              let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: maxPayloadSize + 1),
-              data.count <= maxPayloadSize, let png = pngImage(from: data)
-        else { return nil }
-        return ClipImage(data: png, format: UTType.png.identifier)
-    }
-
-    private nonisolated static func pngImage(from data: Data) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let type = CGImageSourceGetType(source) as String?,
-              [UTType.png, .jpeg, .tiff].contains(where: { $0.identifier == type }),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              (1...8192).contains(width), (1...8192).contains(height),
-              width * height <= 32_000_000
-        else { return nil }
-
-        if type == UTType.png.identifier, CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete {
-            return data
-        }
-
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(width, height),
-        ]
-        guard let bitmap = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil)
-        else { return nil }
-        CGImageDestinationAddImage(destination, bitmap, nil)
-        guard CGImageDestinationFinalize(destination), output.length <= maxPayloadSize else { return nil }
-        return output as Data
     }
 
     private func readPayload() -> ClipPayload? {
@@ -860,7 +540,7 @@ final class ClipboardStore {
         return nil
     }
 
-    private func trimHistory() -> [Clip.ID] {
+    func trimHistory() -> [Clip.ID] {
         var count = 0
         var size = 0
         var removed: [Clip.ID] = []
@@ -879,120 +559,7 @@ final class ClipboardStore {
         return removed
     }
 
-    func syncLibrary() -> SyncLibrary {
-        SyncLibrary(
-            clips: clips.filter(\.isSyncSaved), groups: groups, tombstones: syncTombstones,
-            privateIDs: Set(clips.lazy.filter { !$0.canSync }.map(\.id))
-        )
-    }
-
-    func applySync(_ records: SyncRecords, blobs: [SyncBlob: Data]) {
-        var incoming = Dictionary(uniqueKeysWithValues: records.clips.map { ($0.id, $0) })
-        let deleted = Set(records.tombstones.lazy.filter { $0.kind == .clip }.map(\.id))
-        let privateIDs = Set(clips.lazy.filter { !$0.canSync }.map(\.id))
-        let localGroups = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
-        let liveGroupIDs = Set(records.groups.map(\.id))
-        let deletedGroups = Set(records.tombstones.lazy.filter {
-            $0.kind == .group && !liveGroupIDs.contains($0.id)
-        }.map(\.id))
-        let updatedGroups = records.groups.map { group in
-            var order = group.cardOrder
-            // Private cards can be arranged locally without publishing their identifiers.
-            for (index, id) in (localGroups[group.id]?.cardOrder ?? []).enumerated() where privateIDs.contains(id) {
-                var localOrder = order ?? []
-                localOrder.insert(id, at: min(index, localOrder.count))
-                order = localOrder
-            }
-            return ClipGroup(
-                id: group.id, name: group.name, color: group.color, cardOrder: order,
-                modifiedAt: group.modifiedAt, syncPosition: group.position, syncName: group.originalName
-            )
-        }
-        var changed: [Clip] = []
-        var removed: [Clip.ID] = []
-        let existing = clips.compactMap { clip -> Clip? in
-            var updated = clip
-            let record = incoming.removeValue(forKey: clip.id)
-            if !clip.canSync {
-                if let membership = clip.groupIDs, !membership.isDisjoint(with: deletedGroups) {
-                    let remaining = membership.subtracting(deletedGroups)
-                    updated.groupIDs = remaining.isEmpty ? nil : remaining
-                    if !updated.isSaved { updated.isFavorite = true }
-                }
-            } else if let record {
-                updated = record.materialize(existing: clip, blobs: blobs)
-            } else if clip.isSaved, deleted.contains(clip.id) {
-                if clip.syncOnly == true {
-                    removed.append(clip.id)
-                    return nil
-                }
-                updated.isFavorite = false
-                updated.groupIDs = nil
-            }
-            if updated != clip { changed.append(updated) }
-            return updated
-        }
-        let added = incoming.values.map { $0.materialize(existing: nil, blobs: blobs) }.sorted {
-            if $0.date != $1.date { return $0.date > $1.date }
-            return $0.id.uuidString < $1.id.uuidString
-        }
-        changed.append(contentsOf: added)
-
-        let groupsChanged = updatedGroups != groups
-        if records.tombstones != syncTombstones {
-            syncTombstones = records.tombstones
-            syncTombstonesChanged = true
-        }
-        if groupsChanged { groups = updatedGroups }
-        guard groupsChanged || syncTombstonesChanged || !changed.isEmpty || !removed.isEmpty else { return }
-        if !changed.isEmpty || !removed.isEmpty { clips = added + existing }
-        save(upserting: changed, removing: removed, groupsChanged: groupsChanged, restoringOrder: !changed.isEmpty)
-        for clip in changed { queueOCR(clip) }
-    }
-
-    private func recordSyncChange(to clip: inout Clip, replacing previous: Clip?) {
-        guard clip.isSaved || previous?.isSaved == true else { return }
-        let wasSaved = previous?.isSyncSaved == true
-        let before = previous.map { $0.modifiedAt ?? $0.date } ?? clip.modifiedAt
-        let date = syncDate(id: clip.id, kind: .clip, after: before)
-        clip.modifiedAt = date
-        if clip.isSyncSaved {
-            markSyncChanged()
-        } else if wasSaved {
-            addSyncTombstone(id: clip.id, kind: .clip, at: date)
-        }
-    }
-
-    private func touchGroup(at index: Int) {
-        groups[index].modifiedAt = syncDate(id: groups[index].id, kind: .group, after: groups[index].modifiedAt)
-        markSyncChanged()
-    }
-
-    private func syncDate(id: UUID, kind: SyncTombstone.Kind, after previous: Date?) -> Date {
-        let deleted = syncTombstones.first { $0.id == id && $0.kind == kind }?.deletedAt
-        let last = max(previous ?? .distantPast, deleted ?? .distantPast)
-        return max(.now, Date(timeIntervalSinceReferenceDate: last.timeIntervalSinceReferenceDate.nextUp))
-    }
-
-    private func recordSyncDeletion(id: UUID, kind: SyncTombstone.Kind, after previous: Date?) {
-        let date = syncDate(id: id, kind: kind, after: previous)
-        addSyncTombstone(id: id, kind: kind, at: date)
-    }
-
-    private func addSyncTombstone(id: UUID, kind: SyncTombstone.Kind, at date: Date) {
-        let cutoff = Date.now.addingTimeInterval(-30 * 86_400)
-        syncTombstones.removeAll { ($0.id == id && $0.kind == kind) || $0.deletedAt < cutoff }
-        syncTombstones.append(.init(id: id, kind: kind, deletedAt: date))
-        syncTombstonesChanged = true
-        markSyncChanged()
-    }
-
-    private func markSyncChanged() {
-        syncRevision += 1
-        onSavedStateChange?()
-    }
-
-    private func save(
+    func save(
         upserting: [Clip] = [], removing: [Clip.ID] = [], groupsChanged: Bool = false, restoringOrder: Bool = false
     ) {
         if !queuedOCR.isDisjoint(with: removing) {
@@ -1006,138 +573,16 @@ final class ClipboardStore {
         if restoringOrder { pendingOrderRepair = UUID() }
         let repair = pendingOrderRepair
         let order = repair.map { _ in clips.map(\.id) }
+        let token = upserting.isEmpty && removing.isEmpty ? nil : UUID().uuidString
+        if let token { searchToken = token }
         writer.save(
             upserting: upserting, removing: removing, groups: groupsChanged ? groups : nil,
-            currentOrder: order, restoringOrder: restoringOrder, tombstones: tombstones
+            currentOrder: order, restoringOrder: restoringOrder, tombstones: tombstones, searchToken: token
         ) { [weak self] succeeded in
             Task { @MainActor [weak self] in
                 if succeeded, self?.pendingOrderRepair == repair { self?.pendingOrderRepair = nil }
-                self?.storageError = succeeded ? nil : "无法保存剪贴板历史。"
+                self?.storageError = succeeded ? nil : L("无法保存剪贴板历史。")
             }
-        }
-    }
-}
-
-struct HistoryFilter: Equatable, Sendable {
-    let search: String
-    let contentType: HistoryContentType?
-    let favoritesOnly: Bool
-    let sourceName: String?
-    let groupID: ClipGroup.ID?
-    let sourceBundleIdentifier: String?
-    let locale: Locale?
-
-    func includes(_ clip: Clip) -> Bool {
-        let sourceMatches: Bool
-        if let expected = sourceBundleIdentifier, let actual = clip.sourceBundleIdentifier {
-            sourceMatches = actual == expected
-        } else if let sourceName {
-            sourceMatches = clip.sourceName == sourceName
-        } else {
-            sourceMatches = sourceBundleIdentifier == nil
-        }
-        return sourceMatches &&
-            (!favoritesOnly || clip.isSaved) &&
-            (groupID.map { clip.groupIDs?.contains($0) == true } ?? true) &&
-            matchesPayloadKind(clip.payload.kind) &&
-            (search.isEmpty ||
-             (clip.title?.localizedStandardContains(search) ?? false) ||
-             (clip.recognizedText?.localizedStandardContains(search) ?? false) ||
-             (clip.barcodePayloads?.contains { $0.localizedStandardContains(search) } ?? false) ||
-             clip.payload.searchableText.localizedStandardContains(search) ||
-             ((clip.sourceName ?? clip.sourceBundleIdentifier)?.localizedStandardContains(search) ?? false))
-    }
-
-    private func matchesPayloadKind(_ kind: ClipKind) -> Bool {
-        switch contentType {
-        case nil: true
-        case let .kind(expected): kind == expected
-        default: kind == .text
-        }
-    }
-
-    @MainActor
-    func matchingDetectedType(in clips: [Clip], cache: DetectionCache) -> [Clip] {
-        switch contentType {
-        case .color, .code, .oneTimeCode:
-            clips.filter { clip in
-                switch (contentType, cache.result(for: clip)) {
-                case (.color, .color), (.code, .code), (.oneTimeCode, .oneTimeCode): true
-                default: false
-                }
-            }
-        case nil, .kind:
-            clips
-        }
-    }
-}
-
-private final class PreparedPNG {
-    let data: Data?
-
-    init(data: Data?) { self.data = data }
-}
-
-private struct OCRJob {
-    let data: Data
-    let token: UUID
-    let task: Task<String?, Never>
-}
-
-private final class ArchiveWriter: @unchecked Sendable {
-    private let archive: ClipArchive
-    private let queue = DispatchQueue(label: "Kippet.archive", qos: .utility)
-    // Pending changes belong to the serial writer queue and survive a failed transaction.
-    private var upserts: [Clip.ID: Clip] = [:]
-    private var deletions: Set<Clip.ID> = []
-    private var groups: [ClipGroup]?
-    private var order: [Clip.ID]?
-    private var tombstones: [SyncTombstone]?
-
-    init(archive: ClipArchive) {
-        self.archive = archive
-    }
-
-    func save(
-        upserting: [Clip], removing: [Clip.ID], groups: [ClipGroup]?, currentOrder: [Clip.ID]?, restoringOrder: Bool,
-        tombstones: [SyncTombstone]?,
-        completion: @escaping @Sendable (Bool) -> Void
-    ) {
-        queue.async {
-            for clip in upserting {
-                self.upserts[clip.id] = clip
-                self.deletions.remove(clip.id)
-            }
-            for id in removing {
-                self.upserts.removeValue(forKey: id)
-                self.deletions.insert(id)
-            }
-            if let groups { self.groups = groups }
-            if let tombstones { self.tombstones = tombstones }
-            if let currentOrder, restoringOrder || self.order != nil { self.order = currentOrder }
-            completion(self.commit())
-        }
-    }
-
-    func flush() {
-        queue.sync { _ = commit() }
-    }
-
-    private func commit() -> Bool {
-        guard !upserts.isEmpty || !deletions.isEmpty || groups != nil || tombstones != nil else { return true }
-        do {
-            let newestFirst = upserts.values.sorted { $0.date > $1.date }
-            try archive.write(
-                upserting: newestFirst, removing: Array(deletions), groups: groups, order: order, tombstones: tombstones
-            )
-            upserts.removeAll()
-            deletions.removeAll()
-            groups = nil
-            order = nil
-            tombstones = nil
-            return true
-        } catch {
-            return false
         }
     }
 }

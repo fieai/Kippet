@@ -5,11 +5,11 @@ enum DetectedKind: String, CaseIterable, Codable, Sendable {
 
     var label: String {
         switch self {
-        case .color: "颜色"
-        case .code: "代码"
-        case .oneTimeCode: "验证码"
-        case .email: "邮箱"
-        case .phone: "电话"
+        case .color: L("颜色")
+        case .code: L("代码")
+        case .oneTimeCode: L("验证码")
+        case .email: L("邮箱")
+        case .phone: L("电话")
         }
     }
 }
@@ -57,6 +57,12 @@ struct ClipRule: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    var displayName: String {
+        guard Self.presets.contains(where: { $0.id == id && $0.name == name }) else { return name }
+        return L(name)
+    }
+
+    static let colorBoardName = "颜色"
     static let colorPresetID = UUID(uuidString: "B8B5E0DB-884E-42C9-9301-4804AAFCB167")!
     static let presets: [Self] = [
         Self(
@@ -103,12 +109,12 @@ enum RuleEngine {
         if let sources = match.sourceBundleIdentifiers, clip.sourceBundleIdentifier.map(sources.contains) != true {
             return false
         }
-        if let kinds = match.kinds, !kinds.contains(clip.payload.kind) { return false }
+        if let kinds = match.kinds, !kinds.contains(clip.storedPayload.kind) { return false }
         if let types = match.detected, detected.map(types.contains) != true { return false }
         guard match.textContains != nil || match.regex != nil else { return true }
 
         let text: String
-        switch clip.payload {
+        switch clip.storedPayload {
         case let .text(value, _, _), let .link(value): text = value
         case .image, .files: return false
         }
