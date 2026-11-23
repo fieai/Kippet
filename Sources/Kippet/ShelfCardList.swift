@@ -18,7 +18,7 @@ extension ShelfView {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     let revealing = Date.now.timeIntervalSince(browser.revealedAt) < 0.6
-                    LazyHStack(spacing: 14) {
+                    LazyHStack(spacing: ShelfCardScroll.spacing) {
                         ForEach(Array(visible.enumerated()), id: \.element.id) { index, clip in
                             let isSelected = browser.multiSelection.isEmpty
                                 ? selected == clip.id : browser.multiSelection.contains(clip.id)
@@ -28,7 +28,7 @@ extension ShelfView {
                                 shelfIsOpen: status.shelfIsOpen,
                                 onSource: { filterBySource($0) }, onDragState: onDragState
                             )
-                            .frame(width: 222, height: max(145, geometry.size.height - 30))
+                            .frame(width: ShelfCardScroll.cardWidth, height: max(145, geometry.size.height - 30))
                             .modifier(ShelfCardEntrance(index: index, animates: revealing && index < 12))
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.86, anchor: .bottom).combined(with: .opacity),
@@ -64,7 +64,7 @@ extension ShelfView {
                         }
                     }
                     .scrollTargetLayout()
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, ShelfCardScroll.inset)
                     .padding(.vertical, 15)
                     .animation(ShelfMotion.list, value: visible.map(\.id))
                     .id(browser.revealCount)
@@ -80,13 +80,21 @@ extension ShelfView {
                     }
                 }
                 .onChange(of: selected, initial: true) { _, id in
-                    if let id {
-                        withAnimation(ShelfMotion.glide) {
-                            proxy.scrollTo(id, anchor: id == visible.first?.id ? .leading : nil)
-                        }
+                    // Only move the strip's leading card; a second scrollTo here fought scrollPosition
+                    // and made arrow-key selection appear to skip cards.
+                    guard let id, let index = visible.firstIndex(where: { $0.id == id }) else { return }
+                    let current = visible.firstIndex(where: { $0.id == leadingCard }) ?? 0
+                    let next = ShelfCardScroll.leadingIndex(
+                        current: current, selected: index,
+                        fullyVisible: ShelfCardScroll.fullyVisibleCount(width: geometry.size.width),
+                        total: visible.count
+                    )
+                    if next != current || leadingCard == nil {
+                        withAnimation(ShelfMotion.glide) { leadingCard = visible[next].id }
                     }
                 }
                 .onChange(of: browser.opening) { _, _ in
+                    leadingCard = visible.first?.id
                     if let first = visible.first { proxy.scrollTo(first.id, anchor: .leading) }
                 }
             }
