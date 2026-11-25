@@ -114,6 +114,7 @@ struct ShelfPreferencesView: View {
                     case .idle:
                         EmptyView()
                     case .checking:
+                        ProgressView().controlSize(.small)
                         Text("正在检查…").foregroundStyle(.secondary)
                     case .current:
                         Text("已是最新版本").foregroundStyle(.secondary)
@@ -124,6 +125,7 @@ struct ShelfPreferencesView: View {
                         Text("无法检查更新").foregroundStyle(.secondary)
                     }
                 }
+                .animation(ShelfMotion.lift, value: updateChecker.state)
             }
         }
         .formStyle(.grouped)
@@ -163,8 +165,10 @@ struct ShelfPreferencesView: View {
             }
             if let shortcutError, shortcutError.action == action {
                 Text(shortcutError.message).font(.caption).foregroundStyle(.red)
+                    .transition(ShelfMotion.inlineNote)
             }
         }
+        .animation(ShelfMotion.lift, value: shortcutError?.message)
     }
 
     private var privacy: some View {

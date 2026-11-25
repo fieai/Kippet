@@ -27,7 +27,10 @@ extension ShelfView {
                     .background(.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
                     .accessibilityLabel("卡片正文")
                 HStack {
-                    if let editError { Text(editError).foregroundStyle(.red).font(.caption) }
+                    if let editError {
+                        Text(editError).foregroundStyle(.red).font(.caption)
+                            .transition(ShelfMotion.inlineNote)
+                    }
                     Spacer()
                     Button("取消", action: stopEditingText)
                     Button("保存") { saveText(clip, paste: false) }
@@ -55,6 +58,10 @@ extension ShelfView {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Editing and text extraction swap the body in place; errors slide out from the controls.
+        .animation(ShelfMotion.swap, value: textEditorID == clip.id)
+        .animation(ShelfMotion.swap, value: extractionID == clip.id)
+        .animation(ShelfMotion.lift, value: editError)
     }
 
     func showExtraction(_ clip: Clip) {
@@ -142,16 +149,20 @@ private struct OCRTextPreview: View {
             } else if completed {
                 Text(text == nil ? L("暂时无法识别这张图片") : L("未在图片中识别到文字"))
                     .foregroundStyle(.secondary)
+                    .transition(.opacity)
             } else {
                 ProgressView("正在识别图片文字").controlSize(.small)
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: id) {
             let result = await store.recognizeText(id)
             guard !Task.isCancelled else { return }
-            text = result
-            completed = true
+            withAnimation(ShelfMotion.swap) {
+                text = result
+                completed = true
+            }
         }
     }
 }

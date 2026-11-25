@@ -121,8 +121,8 @@ extension ShelfDelegate {
 
     @objc func openPasteStack() {
         status.transformClip = nil
-        status.showsStack = true
         showShelf()
+        status.showsStack = true
     }
 
     func pasteNextInStack(trigger: StackTrigger) {

@@ -24,13 +24,19 @@ extension ShelfView {
                 onReturnToCards()
                 status.showsStack.toggle()
             } label: {
-                Label(pasteStack.entries.isEmpty ? L("粘贴栈") : L("粘贴栈 · %lld", pasteStack.entries.count),
-                      systemImage: pasteStack.isCollecting ? "record.circle" : "tray.full")
+                Label {
+                    Text(pasteStack.entries.isEmpty ? L("粘贴栈") : L("粘贴栈 · %lld", pasteStack.entries.count))
+                        .contentTransition(.numericText())
+                } icon: {
+                    Image(systemName: pasteStack.isCollecting ? "record.circle" : "tray.full")
+                        .contentTransition(.symbolEffect(.replace))
+                }
             }
             .buttonStyle(.borderless)
             .foregroundStyle(status.showsStack ? ShelfTheme.accent : .primary)
-            .contentTransition(.numericText())
             .animation(ShelfMotion.lift, value: pasteStack.entries.count)
+            .animation(ShelfMotion.lift, value: pasteStack.isCollecting)
+            .animation(ShelfMotion.select, value: status.showsStack)
             .accessibilityAddTraits(status.showsStack ? .isSelected : [])
 
             Button {
@@ -64,6 +70,8 @@ extension ShelfView {
                     .disabled(!store.clips.contains { !$0.isSaved })
             } label: {
                 Image(systemName: store.isPaused ? "pause.circle" : "ellipsis.circle")
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(ShelfMotion.lift, value: store.isPaused)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -102,7 +110,7 @@ extension ShelfView {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                .transition(ShelfMotion.badge)
                 .accessibilityLabel("清空搜索")
             } else if !searchFocused {
                 Text(preferences.shortcut(for: .search).label)
@@ -126,7 +134,7 @@ extension ShelfView {
                 .allowsHitTesting(false)
         }
         .shadow(color: ShelfTheme.accent.opacity(searchFocused ? 0.28 : 0), radius: 8)
-        .animation(ShelfMotion.lift, value: searchFocused)
+        .animation(ShelfMotion.select, value: searchFocused)
         .help(L("搜索剪贴板　%@", preferences.shortcut(for: .search).label))
     }
 

@@ -24,9 +24,6 @@ struct ShelfSyncSettings: View {
                             Text("尚未同步")
                         }
                     }
-                    if sync.status == .syncing {
-                        ProgressView().controlSize(.small).accessibilityLabel("正在同步")
-                    }
                     if case let .error(message) = sync.status {
                         Text(message).foregroundStyle(ShelfTheme.warning)
                     }
@@ -34,7 +31,13 @@ struct ShelfSyncSettings: View {
                         Button("立即同步") { Task { await sync.syncNow() } }
                             .disabled(sync.status == .syncing)
                         Button("停止同步", action: sync.stop)
+                        // Kept on the button row so starting a sync never pushes the rows below.
+                        ProgressView().controlSize(.small)
+                            .opacity(sync.status == .syncing ? 1 : 0)
+                            .accessibilityHidden(sync.status != .syncing)
+                            .accessibilityLabel("正在同步")
                     }
+                    .animation(ShelfMotion.lift, value: sync.status == .syncing)
                 } else if case let .error(message) = sync.status {
                     Text(message).foregroundStyle(ShelfTheme.warning)
                 }
@@ -75,14 +78,33 @@ struct ShelfSyncSettings: View {
 struct ShelfSyncStatus: View {
     let status: SyncEngine.Status
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Where the arrows come to rest after a sync; they finish the turn instead of snapping back.
+    @State private var restingAngle: Double = 0
+    @State private var startedAt = Date.now
 
     var body: some View {
-        TimelineView(.animation(paused: status != .syncing || reduceMotion)) { context in
+        let syncing = status == .syncing && !reduceMotion
+        TimelineView(.animation(paused: !syncing)) { context in
             Image(systemName: failed ? "exclamationmark.icloud" : "arrow.triangle.2.circlepath")
-                .rotationEffect(.degrees(angle(at: context.date)))
+                .contentTransition(.symbolEffect(.replace))
+                .rotationEffect(.degrees(syncing ? angle(at: context.date) : restingAngle))
         }
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(failed ? ShelfTheme.warning : .secondary)
+        .animation(ShelfMotion.lift, value: failed)
+        .onChange(of: syncing) { _, isSyncing in
+            if isSyncing {
+                startedAt = .now
+                restingAngle = 0
+            } else if reduceMotion {
+                restingAngle = 0
+            } else {
+                // Continue forward to the next full turn so the stop reads as landing, not rewinding.
+                let current = angle(at: .now)
+                restingAngle = current
+                withAnimation(ShelfMotion.glide) { restingAngle = ShelfMotionSpec.restingAngle(after: current) }
+            }
+        }
         .help(label)
         .accessibilityLabel(label)
     }
@@ -101,9 +123,9 @@ struct ShelfSyncStatus: View {
         }
     }
 
+    /// Angle since this sync started, so every sync begins upright.
     private func angle(at date: Date) -> Double {
-        guard status == .syncing, !reduceMotion else { return 0 }
         let period = ShelfMotion.syncRotationPeriod
-        return date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period * 360
+        return date.timeIntervalSince(startedAt) / period * 360
     }
 }

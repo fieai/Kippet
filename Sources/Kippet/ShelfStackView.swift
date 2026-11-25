@@ -21,12 +21,14 @@ extension ShelfView {
                 Text("从历史加入卡片，或开启连续收集后复制内容。")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .transition(.opacity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(pasteStack.entries.enumerated()), id: \.element.id) { index, entry in
                             HStack(spacing: 8) {
                                 Text("\(index + 1)").monospacedDigit().foregroundStyle(.secondary)
+                                    .contentTransition(.numericText())
                                 Image(systemName: entry.clip.storedPayload.kind.symbol)
                                     .foregroundStyle(ShelfTheme.tint(for: entry.clip.storedPayload.kind))
                                 Text(entry.clip.title ?? String(entry.clip.storedPayload.previewText.prefix(240)))
@@ -45,14 +47,12 @@ extension ShelfView {
                             .padding(.vertical, 5)
                             .background(index == 0 ? ShelfTheme.accent.opacity(0.1) : .clear,
                                         in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(ShelfMotion.row)
                         }
                     }
                     .animation(ShelfMotion.list, value: pasteStack.entries.map(\.id))
                 }
+                .transition(.opacity)
             }
             HStack {
                 Button("恢复上一条") { pasteStack.undoLastPaste() }
@@ -68,5 +68,6 @@ extension ShelfView {
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .animation(ShelfMotion.swap, value: pasteStack.entries.isEmpty)
     }
 }

@@ -17,7 +17,7 @@ extension ShelfView {
         return GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
-                    let revealing = Date.now.timeIntervalSince(browser.revealedAt) < 0.6
+                    let sinceReveal = Date.now.timeIntervalSince(browser.revealedAt)
                     LazyHStack(spacing: ShelfCardScroll.spacing) {
                         ForEach(Array(visible.enumerated()), id: \.element.id) { index, clip in
                             let isSelected = browser.multiSelection.isEmpty
@@ -29,11 +29,12 @@ extension ShelfView {
                                 onSource: { filterBySource($0) }, onDragState: onDragState
                             )
                             .frame(width: ShelfCardScroll.cardWidth, height: max(145, geometry.size.height - 30))
-                            .modifier(ShelfCardEntrance(index: index, animates: revealing && index < 12))
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.86, anchor: .bottom).combined(with: .opacity),
-                                removal: .scale(scale: 0.8).combined(with: .opacity)
+                            .modifier(ShelfCardEntrance(
+                                index: index,
+                                animates: ShelfMotionSpec.entranceAnimates(index: index, secondsSinceReveal: sinceReveal),
+                                cascade: browser.revealCascades
                             ))
+                            .transition(ShelfMotion.card)
                             .onTapGesture(count: 2) {
                                 if !selectingCards, NSEvent.modifierFlags.intersection([.command, .shift]).isEmpty {
                                     onPaste(clip, false)
@@ -230,6 +231,7 @@ extension ShelfView {
                 pasteTransformed(clip, with: transform)
             }, onCancel: closeTransformPicker)
             .frame(width: width)
+            .modifier(ShelfPopoverEntrance(anchor: .center))
             .position(x: x, y: geometry.size.height / 2)
         }
     }

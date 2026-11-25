@@ -33,41 +33,120 @@ enum ShelfTheme {
     }
 }
 
+/// One motion language for the whole shelf. See `ShelfMotionSpec` for the roles and numbers.
 enum ShelfMotion {
     static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     static let syncRotationPeriod: TimeInterval = 1.2
 
-    /// Selection, hover and lift: quick with a hint of settle.
-    static var lift: Animation { reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.3, dampingFraction: 0.78) }
-    /// Moving highlights such as the pinboard indicator.
-    static var glide: Animation { reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.36, dampingFraction: 0.86) }
-    /// Swapping the main content area (cards, preview, stack).
-    static var swap: Animation { reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.34, dampingFraction: 0.9) }
-    /// Insertions and removals in lists.
-    static var list: Animation { reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.38, dampingFraction: 0.84) }
-
-    static func entrance(_ index: Int) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12)
-            : .spring(response: 0.42, dampingFraction: 0.8).delay(0.03 + Double(index) * 0.028)
+    private static func animation(_ role: ShelfMotionSpec.Role) -> Animation {
+        if reduceMotion { return .easeOut(duration: ShelfMotionSpec.reducedFade) }
+        let spring = ShelfMotionSpec.spring(role)
+        return .spring(response: spring.response, dampingFraction: spring.damping)
     }
+
+    /// Button press and release.
+    static var press: Animation { animation(.press) }
+    /// Selection and focus, which people repeat quickly with the arrow keys.
+    static var select: Animation { animation(.select) }
+    /// Hover, toggles and small badges.
+    static var lift: Animation { animation(.lift) }
+    /// Moving highlights and scroll positions such as the pinboard indicator.
+    static var glide: Animation { animation(.glide) }
+    /// Swapping the main content area (cards, preview, stack) and popovers.
+    static var swap: Animation { animation(.swap) }
+    /// Insertions and removals in lists.
+    static var list: Animation { animation(.list) }
+    /// Content that arrives by itself, such as a decoded thumbnail.
+    static var fade: Animation {
+        .easeOut(duration: reduceMotion ? ShelfMotionSpec.reducedFade : ShelfMotionSpec.fade)
+    }
+
+    static func entrance(_ index: Int, cascade: Bool = true) -> Animation {
+        if reduceMotion { return .easeOut(duration: ShelfMotionSpec.reducedFade) }
+        let spring = cascade ? ShelfMotionSpec.entranceSpring : ShelfMotionSpec.spring(.swap)
+        return .spring(response: spring.response, dampingFraction: spring.damping)
+            .delay(ShelfMotionSpec.entranceDelay(for: index, cascade: cascade))
+    }
+
+    // MARK: Transitions — each one says where the thing comes from; Reduce Motion keeps only the fade.
+
+    private static func moving(_ transition: AnyTransition) -> AnyTransition {
+        reduceMotion ? .opacity : transition
+    }
+
+    /// The main content area: views that come from below (preview, stack) rise, the cards settle down.
+    static func content(from edge: Edge) -> AnyTransition {
+        .asymmetric(
+            insertion: moving(.opacity.combined(with: .offset(y: edge == .bottom ? 12 : -8))),
+            removal: .opacity
+        )
+    }
+
+    /// Paging through previews with the arrow keys: the next one slides in from the side you moved toward.
+    static func page(direction: Int) -> AnyTransition {
+        .asymmetric(
+            insertion: moving(.opacity.combined(with: .offset(x: CGFloat(direction.signum()) * 16))),
+            removal: .opacity
+        )
+    }
+
+    /// A new card grows out of the strip's floor; a deleted one shrinks away in place.
+    static var card: AnyTransition {
+        moving(.asymmetric(
+            insertion: .scale(scale: 0.88, anchor: .bottom).combined(with: .opacity),
+            removal: .scale(scale: 0.86).combined(with: .opacity)
+        ))
+    }
+
+    /// Small glyphs and badges (stars, clear buttons) pop in place.
+    static var badge: AnyTransition { moving(.scale(scale: 0.6).combined(with: .opacity)) }
+
+    /// List rows arrive from the end of the list and leave toward the leading edge.
+    static var row: AnyTransition {
+        moving(.asymmetric(
+            insertion: .move(edge: .bottom).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        ))
+    }
+
+    /// Popovers grow from the thing they belong to.
+    static func popover(anchor: UnitPoint) -> AnyTransition {
+        moving(.scale(scale: 0.94, anchor: anchor).combined(with: .opacity))
+    }
+
+    /// Inline status or error text below a control slides down from it.
+    static var inlineNote: AnyTransition { moving(.offset(y: -4).combined(with: .opacity)) }
 }
 
 /// Cards near the front slide up in sequence when the shelf opens; later ones simply appear.
 struct ShelfCardEntrance: ViewModifier {
     let index: Int
     let animates: Bool
+    var cascade = true
     @State private var shown = false
 
     func body(content: Content) -> some View {
         let visible = shown || !animates
+        let rise = ShelfMotion.reduceMotion ? 0 : ShelfMotionSpec.entranceRise(cascade: cascade)
         content
             .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : 22)
-            .scaleEffect(visible ? 1 : 0.96, anchor: .bottom)
+            .offset(y: visible ? 0 : rise)
             .onAppear {
                 guard animates, !shown else { return }
-                withAnimation(ShelfMotion.entrance(index)) { shown = true }
+                withAnimation(ShelfMotion.entrance(index, cascade: cascade)) { shown = true }
             }
+    }
+}
+
+/// A popover that grows out of its anchor when it appears; its container handles the fade out.
+struct ShelfPopoverEntrance: ViewModifier {
+    var anchor: UnitPoint = .bottom
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown || ShelfMotion.reduceMotion ? 1 : 0.94, anchor: anchor)
+            .onAppear { withAnimation(ShelfMotion.swap) { shown = true } }
     }
 }
 
@@ -96,21 +175,21 @@ struct ShelfGlyphButtonStyle: ButtonStyle {
                         .fill(isActive ? ShelfTheme.accent.opacity(0.16)
                               : Color.primary.opacity(hovering ? 0.08 : 0))
                 }
-                .scaleEffect(configuration.isPressed ? 0.9 : 1)
+                .scaleEffect(configuration.isPressed && !ShelfMotion.reduceMotion ? 0.92 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }
                 .animation(ShelfMotion.lift, value: hovering)
-                .animation(ShelfMotion.lift, value: configuration.isPressed)
+                .animation(ShelfMotion.press, value: configuration.isPressed)
                 .animation(ShelfMotion.lift, value: isActive)
         }
     }
 }
 
 /// Short-lived status text in the footer slides up and fades instead of popping.
-struct ShelfToastTransition {
+enum ShelfToastTransition {
     static var transition: AnyTransition {
         .asymmetric(
-            insertion: .offset(y: 8).combined(with: .opacity),
+            insertion: ShelfMotion.reduceMotion ? .opacity : .offset(y: 6).combined(with: .opacity),
             removal: .opacity
         )
     }

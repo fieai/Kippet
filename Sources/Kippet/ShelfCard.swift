@@ -47,7 +47,7 @@ struct ShelfCard: View {
         .offset(y: isSelected ? -5 : hovering ? -2 : 0)
         .contentShape(shape)
         .onHover { hovering = $0 }
-        .animation(ShelfMotion.lift, value: isSelected)
+        .animation(ShelfMotion.select, value: isSelected)
         .animation(ShelfMotion.lift, value: hovering)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
@@ -90,7 +90,7 @@ struct ShelfCard: View {
                     .background(commandHeld ? ShelfTheme.accent : Color.primary.opacity(0.06),
                                 in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                     .scaleEffect(commandHeld ? 1.12 : 1)
-                    .animation(ShelfMotion.lift, value: commandHeld)
+                    .animation(ShelfMotion.select, value: commandHeld)
                     .accessibilityLabel(L("快贴快捷键 Command %lld", shortcut))
             }
             ShelfDragHandle(item: .card(clip), onDragState: onDragState)
@@ -129,17 +129,19 @@ struct ShelfCard: View {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .transition(ShelfMotion.badge)
                     .accessibilityLabel("已加入收藏分组")
             }
             if clip.isFavorite {
                 Image(systemName: "star.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
-                    .transition(.scale.combined(with: .opacity))
+                    .transition(ShelfMotion.badge)
                     .accessibilityLabel("已加星标")
             }
         }
         .animation(ShelfMotion.lift, value: clip.isFavorite)
+        .animation(ShelfMotion.lift, value: clip.groupIDs?.isEmpty == false)
     }
 
     private var detail: String? {
@@ -258,14 +260,19 @@ private struct ClipExpiryBadge: View {
     private func badge(at date: Date) -> some View {
         let remaining = max(0, expiry.timeIntervalSince(date))
         let countdown = Duration.seconds(remaining.rounded(.up)).formatted(.time(pattern: .minuteSecond))
-        let color = remaining <= 15 ? ShelfTheme.warning : tint
+        let urgent = remaining <= 15
+        let color = urgent ? ShelfTheme.warning : tint
         return Label(countdown, systemImage: "timer")
             .font(.system(size: 10, weight: .semibold))
             .monospacedDigit()
+            .contentTransition(.numericText(countsDown: true))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.12), in: Capsule())
+            // Each second rolls the digits down; turning urgent fades to the warning color.
+            .animation(ShelfMotion.reduceMotion ? nil : ShelfMotion.lift, value: countdown)
+            .animation(ShelfMotion.fade, value: urgent)
             .accessibilityLabel(L("删除倒计时 %@", countdown))
     }
 }

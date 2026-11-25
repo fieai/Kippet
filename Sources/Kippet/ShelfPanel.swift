@@ -145,6 +145,10 @@ extension ShelfDelegate: NSWindowDelegate {
     @objc func showShelf() {
         guard status.panel.shouldShow(isKey: window.isKeyWindow) else { return }
         pasteTask?.cancel()
+        // A plain open starts on the cards, even when it interrupts a dismissal whose reset has not
+        // run yet; refocusing a pinned shelf keeps what it shows. The paste stack entry point asks for
+        // the stack after this.
+        if !status.shelfIsOpen { status.showsStack = false }
         let frontmost = NSWorkspace.shared.frontmostApplication
         pasteTarget = frontmost.flatMap { $0 == .current ? nil : PasteTarget(application: $0, openingShelf: true) }
         keptOriginalFocus = pasteTarget != nil
@@ -168,20 +172,36 @@ extension ShelfDelegate: NSWindowDelegate {
     private func presentWindow(at frame: NSRect) {
         windowTransition &+= 1
         window.ignoresMouseEvents = false
-        let wasVisible = window.isVisible && window.alphaValue > 0.98
-        guard !ShelfMotion.reduceMotion, !wasVisible else {
+        let spec = ShelfMotionSpec.self
+        // Reopening while the shelf is still sinking picks up from where it is instead of restarting.
+        let midDismiss = window.isVisible && window.alphaValue < 0.98
+        let wasVisible = window.isVisible && !midDismiss
+        guard !wasVisible else {
             window.setFrame(frame, display: false)
             window.alphaValue = 1
             window.orderFrontRegardless()
             return
         }
-        // Rise from just below the final position while fading in.
-        window.setFrame(frame.offsetBy(dx: 0, dy: -26), display: false)
-        window.alphaValue = 0
+        let reduce = ShelfMotion.reduceMotion
+        var duration = reduce ? spec.reducedFade : spec.windowRiseDuration
+        if midDismiss {
+            duration = reduce ? spec.reducedFade : spec.riseDuration(remainingFraction: 1 - Double(window.alphaValue))
+            // A different screen means the old position says nothing about the new one.
+            let sameScreen = window.frame.size == frame.size && abs(window.frame.minX - frame.minX) <= 1
+                && abs(window.frame.minY - frame.minY) <= spec.windowSink + 1
+            if !sameScreen {
+                window.setFrame(frame.offsetBy(dx: 0, dy: reduce ? 0 : -spec.windowRise), display: false)
+            }
+        } else {
+            window.setFrame(frame.offsetBy(dx: 0, dy: reduce ? 0 : -spec.windowRise), display: false)
+            window.alphaValue = 0
+        }
         window.orderFrontRegardless()
+        let curve = spec.windowRiseCurve
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.32
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+            context.duration = duration
+            context.timingFunction = reduce ? CAMediaTimingFunction(name: .easeOut)
+                : CAMediaTimingFunction(controlPoints: curve.0, curve.1, curve.2, curve.3)
             context.allowsImplicitAnimation = true
             window.animator().setFrame(frame, display: true)
             window.animator().alphaValue = 1
@@ -189,20 +209,26 @@ extension ShelfDelegate: NSWindowDelegate {
     }
 
     /// Paste hand-off needs the panel gone at once so focus returns; plain dismissals sink and fade.
-    private func dismissWindow(animated: Bool) {
+    /// `settle` resets what the panel shows once it is out of sight, so it never flashes back mid-fade.
+    private func dismissWindow(animated: Bool, settle: @escaping @MainActor () -> Void) {
         windowTransition &+= 1
         let transition = windowTransition
-        guard animated, !ShelfMotion.reduceMotion, window.isVisible else {
+        guard animated, window.isVisible else {
             window.orderOut(nil)
             window.alphaValue = 1
+            settle()
             return
         }
+        let spec = ShelfMotionSpec.self
+        let reduce = ShelfMotion.reduceMotion
         window.ignoresMouseEvents = true
         let frame = window.frame
+        let curve = spec.windowSinkCurve
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            window.animator().setFrame(frame.offsetBy(dx: 0, dy: -14), display: true)
+            context.duration = reduce ? spec.reducedFade : spec.windowSinkDuration
+            context.timingFunction = reduce ? CAMediaTimingFunction(name: .easeIn)
+                : CAMediaTimingFunction(controlPoints: curve.0, curve.1, curve.2, curve.3)
+            window.animator().setFrame(frame.offsetBy(dx: 0, dy: reduce ? 0 : -spec.windowSink), display: true)
             window.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
@@ -211,6 +237,7 @@ extension ShelfDelegate: NSWindowDelegate {
                 self.window.setFrame(frame, display: false)
                 self.window.alphaValue = 1
                 self.window.ignoresMouseEvents = false
+                settle()
             }
         }
     }
@@ -230,8 +257,6 @@ extension ShelfDelegate: NSWindowDelegate {
         pasteTarget = nil
         keptOriginalFocus = false
         status.panel.close()
-        browser.isPreviewing = false
-        status.showsStack = false
         status.commandHeld = false
         status.isDragging = false
         status.isEditingClip = false
@@ -243,7 +268,11 @@ extension ShelfDelegate: NSWindowDelegate {
         if restoreApplication, NSWorkspace.shared.frontmostApplication == .current {
             target?.activate()
         }
-        dismissWindow(animated: cancelPaste)
+        dismissWindow(animated: cancelPaste) { [weak self] in
+            guard let self, !self.status.shelfIsOpen else { return }
+            self.browser.isPreviewing = false
+            self.status.showsStack = false
+        }
         return target
     }
 

@@ -66,7 +66,7 @@ extension ShelfView {
         endMultiSelection()
         status.showsStack = false
         browser.selectedID = browser.results.first?.id
-        browser.revealCards()
+        browser.revealCards(cascade: false)
     }
 
     private func pinboardButton(_ title: String, symbol: String, color: Color,
@@ -115,6 +115,7 @@ extension ShelfView {
                             .overlay {
                                 Circle().strokeBorder(groupColor == color ? Color.primary : .clear, lineWidth: 1)
                             }
+                            .animation(ShelfMotion.select, value: groupColor)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(color.label)
@@ -125,6 +126,7 @@ extension ShelfView {
                 Text(groupError)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .transition(ShelfMotion.inlineNote)
             }
             HStack {
                 Spacer()
@@ -137,6 +139,7 @@ extension ShelfView {
         }
         .padding(20)
         .frame(width: 330)
+        .animation(ShelfMotion.lift, value: groupError)
     }
 
     private func saveGroup(_ editor: GroupEditor) {
@@ -197,7 +200,7 @@ private struct PinboardTab: View {
             Button(action: select) {
                 HStack(spacing: 6) {
                     Circle().fill(tint).frame(width: 7, height: 7)
-                        .scaleEffect(isTargeted ? 1.5 : 1)
+                        .scaleEffect(isTargeted && !ShelfMotion.reduceMotion ? 1.5 : 1)
                     Text(group.name).lineLimit(1).frame(maxWidth: 160)
                 }
             }
@@ -260,7 +263,8 @@ private struct PinboardStyle: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: ShelfTheme.chipRadius, style: .continuous)
         content
-            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+            // One weight for every state: changing it would resize the chip and nudge its neighbours.
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(isSelected ? Color.primary : Color.secondary)
             .padding(.horizontal, 10)
             .frame(height: 26)
@@ -276,9 +280,10 @@ private struct PinboardStyle: ViewModifier {
             .overlay {
                 if isTargeted {
                     shape.strokeBorder(tint, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .transition(.opacity)
                 }
             }
-            .scaleEffect(isTargeted ? 1.06 : 1)
+            .scaleEffect(isTargeted && !ShelfMotion.reduceMotion ? 1.06 : 1)
             .onHover { hovering = $0 }
             .animation(ShelfMotion.lift, value: hovering)
             .animation(ShelfMotion.lift, value: isTargeted)

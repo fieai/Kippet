@@ -45,6 +45,10 @@ final class ShelfBrowser {
     private(set) var revealCount = 0
     /// When the cards were last revealed; cards created shortly after it play their entrance.
     @ObservationIgnored private(set) var revealedAt = Date.distantPast
+    /// Opening the shelf cascades the front cards; switching boards only settles them together.
+    @ObservationIgnored private(set) var revealCascades = true
+    /// Which way the last arrow-key move went (-1, 0, 1), so the preview can slide the same way.
+    @ObservationIgnored private(set) var moveDirection = 0
     private var lastDeletion: ClipboardStore.RemovedClip?
 
     private static let numberKeys = [
@@ -74,6 +78,7 @@ final class ShelfBrowser {
     func selectCard(_ id: Clip.ID, extending: Bool = false, toggling: Bool = false) {
         let visible = results
         guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
+        moveDirection = 0
         let previous = selection(in: visible)?.id
         if extending, let anchor = selectionAnchor ?? previous,
            let start = visible.firstIndex(where: { $0.id == anchor }) {
@@ -142,12 +147,14 @@ final class ShelfBrowser {
         revealCards()
     }
 
-    func revealCards() {
+    func revealCards(cascade: Bool = true) {
         revealedAt = .now
+        revealCascades = cascade
         revealCount += 1
     }
 
     func togglePreview() {
+        moveDirection = 0
         isPreviewing = !isPreviewing && selected != nil
     }
 
@@ -163,6 +170,8 @@ final class ShelfBrowser {
         groupID = next > 1 ? groups[next - 2].id : nil
         selectedID = results.first?.id
         if selectedID == nil { isPreviewing = false }
+        moveDirection = 0
+        revealCards(cascade: false)
         return true
     }
 
@@ -176,6 +185,7 @@ final class ShelfBrowser {
     func delete(_ id: Clip.ID) -> Bool {
         let visible = results
         guard let deletion = store.remove(id) else { return false }
+        moveDirection = 0
         multiSelection.remove(id)
         lastDeletion = deletion
         if selection(in: visible)?.id == id, let index = visible.firstIndex(where: { $0.id == id }) {
@@ -189,6 +199,7 @@ final class ShelfBrowser {
     func undoDeletion() -> Bool {
         guard let lastDeletion, store.restore(lastDeletion) else { return false }
         self.lastDeletion = nil
+        moveDirection = 0
         if results.contains(where: { $0.id == lastDeletion.clip.id }) {
             selectedID = lastDeletion.clip.id
         }
@@ -219,6 +230,7 @@ final class ShelfBrowser {
         default:
             return false
         }
+        moveDirection = (next - current).signum()
         selectedID = visible[next].id
         return true
     }

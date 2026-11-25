@@ -85,6 +85,10 @@ private struct ShelfUsageGuide: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(ShelfTheme.cardFill, in: RoundedRectangle(cornerRadius: ShelfTheme.cardRadius))
+            // Coming back from System Settings, newly granted access settles in instead of blinking.
+            .animation(ShelfMotion.lift, value: hasAccessibilityAccess)
+            .animation(ShelfMotion.lift, value: clipboardStatus)
+            .animation(ShelfMotion.lift, value: offersClipboardSettings)
 
             Button("开始使用", action: onFinish)
                 .buttonStyle(.borderedProminent)

@@ -33,6 +33,39 @@ struct ShelfBrowserTests {
         }
     }
 
+    @Test func remembersWhichWayTheArrowKeysMovedForThePreview() throws {
+        try withBrowser { browser, clips, _ in
+            browser.open()
+            #expect(browser.moveDirection == 0)
+            #expect(browser.move(keyCode: UInt16(kVK_RightArrow), modifiers: [], editingSearch: false, composing: false))
+            #expect(browser.moveDirection == 1)
+            #expect(browser.move(keyCode: UInt16(kVK_LeftArrow), modifiers: [], editingSearch: false, composing: false))
+            #expect(browser.moveDirection == -1)
+            // Hitting the first card again does not move, so nothing should slide.
+            #expect(browser.move(keyCode: UInt16(kVK_LeftArrow), modifiers: [], editingSearch: false, composing: false))
+            #expect(browser.moveDirection == 0)
+            #expect(browser.move(keyCode: UInt16(kVK_RightArrow), modifiers: [], editingSearch: false, composing: false))
+            browser.togglePreview()
+            #expect(browser.moveDirection == 0)
+            #expect(browser.move(keyCode: UInt16(kVK_RightArrow), modifiers: [], editingSearch: false, composing: false))
+            browser.selectCard(clips[0].id)
+            #expect(browser.moveDirection == 0)
+        }
+    }
+
+    @Test func openingCascadesButSwitchingBoardsDoesNot() throws {
+        try withBrowser { browser, _, _ in
+            browser.open()
+            #expect(browser.revealCascades)
+            let count = browser.revealCount
+            #expect(browser.switchGroup(1))
+            #expect(!browser.revealCascades)
+            #expect(browser.revealCount == count + 1)
+            browser.open()
+            #expect(browser.revealCascades)
+        }
+    }
+
     @Test func searchKeepsCaretAndCompositionKeysAndMovesOnlyWithinResults() throws {
         try withBrowser { browser, clips, _ in
             browser.search = "alpha"

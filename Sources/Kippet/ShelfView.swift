@@ -51,25 +51,28 @@ struct ShelfView: View {
             ZStack {
                 switch mode {
                 case .stack:
-                    stackView.transition(contentTransition(from: .bottom))
+                    stackView.transition(ShelfMotion.content(from: .bottom))
                 case .preview:
                     if let selected {
-                        fullPreview(selected).id(selected.id).transition(contentTransition(from: .bottom))
+                        fullPreview(selected).id(selected.id).transition(
+                            browser.moveDirection == 0 ? ShelfMotion.content(from: .bottom)
+                                : ShelfMotion.page(direction: browser.moveDirection)
+                        )
                     }
                 case .empty:
                     ContentUnavailableView(
                         emptyTitle, systemImage: browser.favoritesOnly ? "star" : "clipboard",
                         description: Text(emptyHint)
                     )
-                    .symbolEffect(.bounce, value: browser.opening)
                     .transition(.opacity)
                 case .cards:
-                    cards(visible, selected: selected?.id).transition(contentTransition(from: .top))
+                    cards(visible, selected: selected?.id).transition(ShelfMotion.content(from: .top))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
             .animation(ShelfMotion.swap, value: mode)
+            .animation(mode == .preview ? ShelfMotion.select : nil, value: selected?.id)
             hairline
             footer(status.showsStack ? nil : selected, selection: status.showsStack ? [] : browser.selectedCards(in: visible))
         }
@@ -83,7 +86,13 @@ struct ShelfView: View {
                 .allowsHitTesting(false)
         }
         .overlayPreferenceValue(TransformPickerAnchor.self) { anchor in
-            if let clip = status.transformClip { transformPicker(clip, anchor: anchor) }
+            ZStack {
+                if let clip = status.transformClip {
+                    transformPicker(clip, anchor: anchor)
+                        .transition(.opacity)
+                }
+            }
+            .animation(ShelfMotion.swap, value: status.transformClip?.id)
         }
         .tint(ShelfTheme.accent)
         .onChange(of: browser.opening) { _, _ in
@@ -146,13 +155,6 @@ struct ShelfView: View {
     }
 
     private enum ContentMode: Hashable { case stack, preview, empty, cards }
-
-    private func contentTransition(from edge: Edge) -> AnyTransition {
-        .asymmetric(
-            insertion: .opacity.combined(with: .offset(y: edge == .bottom ? 14 : -10)),
-            removal: .opacity
-        )
-    }
 
     private var hairline: some View {
         Rectangle().fill(ShelfTheme.hairline).frame(height: 1).padding(.horizontal, 14)
